@@ -1,0 +1,1551 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Portfolio Tracker</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0d1117; color: #e2e8f0; font-family: 'Inter', system-ui, sans-serif; }
+  .num { font-family: 'IBM Plex Mono', monospace; }
+  input[type=number],input[type=text],input[type=date],input[type=password] {
+    -moz-appearance: textfield; background: #161b27; border: 1px solid #2a3a50;
+    border-radius: 6px; padding: 7px 10px; color: #e2e8f0; font-size: 13px;
+    font-family: 'Inter', system-ui, sans-serif; outline: none; max-width: 100%;
+  }
+  input:focus { border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59,130,246,0.1); }
+  input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; }
+  select { background: #0f1520; border: 1px solid #2a3a50; border-radius: 6px; padding: 7px 10px; color: #e2e8f0; font-size: 13px; font-family: 'Inter', system-ui, sans-serif; outline: none; }
+  select:focus { border-color: #3b82f6; }
+  @keyframes fadeUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+  @keyframes spin { to{transform:rotate(360deg)} }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  .fu { animation: fadeUp 0.3s ease-out forwards; }
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-thumb { background: #2a3a50; border-radius: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  tr:hover td { background: rgba(255,255,255,0.02); }
+  .tab-row button:hover { color: #94a3b8 !important; }
+  .sa-card { background: #161b27; border: 1px solid #1e2a3a; border-radius: 10px; }
+  .sa-th { font-size: 11px; font-weight: 500; color: #64748b; text-transform: uppercase; letter-spacing: 0.06em; padding: 8px 14px; background: #0f1520; border-bottom: 1px solid #1e2a3a; }
+  .sa-td { padding: 9px 14px; border-bottom: 1px solid #0f1520; font-size: 13px; color: #cbd5e1; }
+  .badge { display: inline-flex; align-items: center; border-radius: 5px; padding: 2px 7px; font-size: 11px; font-weight: 600; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useMemo, useCallback, useRef } = React;
+
+// ── LIGHTWEIGHT SVG CHARTS (no external dep) ─────────────────
+function ResponsiveContainer({ width, height, children }) {
+  const ref = useRef(null);
+  const [w, setW] = useState(300);
+  useEffect(() => {
+    if (!ref.current) return;
+    const ro = new ResizeObserver(entries => { if (entries[0]) setW(entries[0].contentRect.width); });
+    ro.observe(ref.current);
+    setW(ref.current.offsetWidth || 300);
+    return () => ro.disconnect();
+  }, []);
+  const h = typeof height === "number" ? height : 200;
+  return <div ref={ref} style={{ width: width || "100%", height: h }}>
+    {React.cloneElement(React.Children.only(children), { _w: w, _h: h })}
+  </div>;
+}
+
+function PieChart({ children, _w = 200, _h = 200 }) {
+  return <svg width={_w} height={_h}>{React.Children.map(children, c => c && React.cloneElement(c, { _w, _h }))}</svg>;
+}
+
+function Pie({ data = [], dataKey, cx = "50%", cy = "50%", innerRadius = 0, outerRadius = 60, paddingAngle = 0, children, _w = 200, _h = 200, stroke }) {
+  const [hov, setHov] = useState(null);
+  const total = data.reduce((s, d) => s + (d[dataKey] || 0), 0);
+  const cxN = cx === "50%" ? _w / 2 : parseFloat(cx);
+  const cyN = cy === "50%" ? _h / 2 : parseFloat(cy);
+  const cells = React.Children.toArray(children);
+  let angle = -Math.PI / 2;
+  const paths = data.map((d, i) => {
+    const val = d[dataKey] || 0;
+    const frac = total > 0 ? val / total : 0;
+    const span = frac * 2 * Math.PI - (paddingAngle * Math.PI / 180);
+    const a1 = angle, a2 = angle + span;
+    angle += frac * 2 * Math.PI;
+    const or = hov === i ? outerRadius + 4 : outerRadius;
+    const x1 = cxN + or * Math.cos(a1), y1 = cyN + or * Math.sin(a1);
+    const x2 = cxN + or * Math.cos(a2), y2 = cyN + or * Math.sin(a2);
+    const xi1 = cxN + innerRadius * Math.cos(a1), yi1 = cyN + innerRadius * Math.sin(a1);
+    const xi2 = cxN + innerRadius * Math.cos(a2), yi2 = cyN + innerRadius * Math.sin(a2);
+    const large = span > Math.PI ? 1 : 0;
+    const fill = cells[i] ? cells[i].props.fill : PAL[i % PAL.length];
+    const path = innerRadius > 0
+      ? `M${xi1},${yi1} L${x1},${y1} A${or},${or} 0 ${large} 1 ${x2},${y2} L${xi2},${yi2} A${innerRadius},${innerRadius} 0 ${large} 0 ${xi1},${yi1} Z`
+      : `M${cxN},${cyN} L${x1},${y1} A${or},${or} 0 ${large} 1 ${x2},${y2} Z`;
+    return <path key={i} d={path} fill={fill} stroke="none" style={{ transition: "d 0.2s", cursor: "pointer" }} onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)} />;
+  });
+  return <g>{paths}</g>;
+}
+
+function Cell({ fill }) { return null; }
+
+function Tooltip() { return null; }
+
+// Bar Chart
+function BarChart({ data = [], children, margin = {}, _w = 400, _h = 200 }) {
+  const [hov, setHov] = useState(null);
+  const ml = margin.left || 50, mr = margin.right || 10, mt = margin.top || 8, mb = margin.bottom || 24;
+  const iw = _w - ml - mr, ih = _h - mt - mb;
+  const bars = React.Children.toArray(children).filter(c => c.type === Bar);
+  const xAxis = React.Children.toArray(children).find(c => c.type === XAxis);
+  const yAxis = React.Children.toArray(children).find(c => c.type === YAxis);
+  const allVals = data.map(d => bars.map(b => d[b.props.dataKey] || 0)).flat();
+  const minV = Math.min(0, ...allVals), maxV = Math.max(0, ...allVals);
+  const range = maxV - minV || 1;
+  const toY = v => mt + ih - ((v - minV) / range) * ih;
+  const zero = toY(0);
+  const bw = iw / data.length;
+  const ticks = 4;
+  const yTicks = Array.from({ length: ticks + 1 }, (_, i) => minV + (range * i / ticks));
+  return (
+    <svg width={_w} height={_h}>
+      {/* grid */}
+      {yTicks.map((v, i) => <line key={i} x1={ml} x2={_w - mr} y1={toY(v)} y2={toY(v)} stroke="#1e2a3a" strokeDasharray="3 3" />)}
+      {/* zero line */}
+      <line x1={ml} x2={_w - mr} y1={zero} y2={zero} stroke="#334155" strokeWidth={1} />
+      {/* bars */}
+      {bars.map(bar => data.map((d, i) => {
+        const v = d[bar.props.dataKey] || 0;
+        const cells = React.Children.toArray(bar.props.children);
+        const fill = cells[i] ? cells[i].props.fill : "#3b82f6";
+        const bh = Math.abs(toY(v) - zero);
+        const x = ml + i * bw + bw * 0.15;
+        const y = v >= 0 ? zero - bh : zero;
+        return <rect key={i} x={x} y={y} width={bw * 0.7} height={Math.max(bh, 1)} fill={fill} rx={3} opacity={hov === i ? 1 : 0.85} onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)} />;
+      }))}
+      {/* x labels */}
+      {xAxis && data.map((d, i) => <text key={i} x={ml + i * bw + bw / 2} y={_h - 4} textAnchor="middle" fill="#64748b" fontSize={11}>{d[xAxis.props.dataKey]}</text>)}
+      {/* y labels */}
+      {yAxis && yTicks.map((v, i) => <text key={i} x={ml - 4} y={toY(v) + 4} textAnchor="end" fill="#475569" fontSize={10}>{yAxis.props.tickFormatter ? yAxis.props.tickFormatter(v) : Math.round(v)}</text>)}
+      {/* hover tooltip */}
+      {hov !== null && bars.length > 0 && (() => {
+        const d = data[hov]; const v = d[bars[0].props.dataKey] || 0;
+        const x = ml + hov * bw + bw / 2; const y = toY(v) - 8;
+        const label = yAxis && yAxis.props.tickFormatter ? yAxis.props.tickFormatter(v) : ("€" + parseFloat(v).toLocaleString("it-IT", { minimumFractionDigits: 2 }));
+        return <text x={x} y={Math.max(y, mt + 12)} textAnchor="middle" fill="#e2e8f0" fontSize={11} fontWeight={600}>{label}</text>;
+      })()}
+    </svg>
+  );
+}
+function Bar({ dataKey, children, radius }) { return null; }
+function XAxis({ dataKey, tickFormatter }) { return null; }
+function YAxis({ tickFormatter }) { return null; }
+function CartesianGrid() { return null; }
+
+// Area Chart
+function AreaChart({ data = [], children, margin = {}, _w = 400, _h = 200 }) {
+  const [hov, setHov] = useState(null);
+  const ml = margin.left || 50, mr = margin.right || 10, mt = margin.top || 8, mb = margin.bottom || 24;
+  const iw = _w - ml - mr, ih = _h - mt - mb;
+  const areas = React.Children.toArray(children).filter(c => c.type === Area);
+  const refLines = React.Children.toArray(children).filter(c => c.type === ReferenceLine);
+  const xAxis = React.Children.toArray(children).find(c => c.type === XAxis);
+  const yAxis = React.Children.toArray(children).find(c => c.type === YAxis);
+  const allVals = data.map(d => areas.map(a => d[a.props.dataKey] || 0)).flat().filter(v => !isNaN(v));
+  const minV = Math.min(...allVals), maxV = Math.max(...allVals);
+  const range = maxV - minV || 1;
+  const toX = i => ml + (i / Math.max(data.length - 1, 1)) * iw;
+  const toY = v => mt + ih - ((v - minV) / range) * ih;
+  const ticks = 4;
+  const yTicks = Array.from({ length: ticks + 1 }, (_, i) => minV + (range * i / ticks));
+  const xInterval = Math.max(1, Math.floor(data.length / 6));
+  return (
+    <svg width={_w} height={_h}>
+      <defs>
+        {areas.map((a, i) => <linearGradient key={i} id={"ag" + i} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="5%" stopColor={a.props.stroke} stopOpacity={0.18} />
+          <stop offset="95%" stopColor={a.props.stroke} stopOpacity={0} />
+        </linearGradient>)}
+      </defs>
+      {yTicks.map((v, i) => <line key={i} x1={ml} x2={_w - mr} y1={toY(v)} y2={toY(v)} stroke="#1e2a3a" strokeDasharray="3 3" />)}
+      {refLines.map((rl, i) => { const y = toY(rl.props.y || 0); return <line key={i} x1={ml} x2={_w - mr} y1={y} y2={y} stroke={rl.props.stroke || "#334155"} strokeDasharray={rl.props.strokeDasharray || "3 3"} />; })}
+      {areas.map((a, ai) => {
+        if (data.length < 2) return null;
+        const pts = data.map((d, i) => [toX(i), toY(d[a.props.dataKey] || 0)]);
+        const linePath = pts.map((p, i) => (i === 0 ? "M" : "L") + p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" ");
+        const areaPath = linePath + ` L${toX(data.length - 1)},${mt + ih} L${toX(0)},${mt + ih} Z`;
+        return <g key={ai}>
+          <path d={areaPath} fill={"url(#ag" + ai + ")"} />
+          <path d={linePath} fill="none" stroke={a.props.stroke} strokeWidth={a.props.strokeWidth || 2} strokeDasharray={a.props.strokeDasharray} />
+          {a.props.dot && data.length <= 20 && pts.map((p, i) => <circle key={i} cx={p[0]} cy={p[1]} r={3} fill={a.props.stroke} />)}
+        </g>;
+      })}
+      {xAxis && data.map((d, i) => {
+        if (i % xInterval !== 0 && i !== data.length - 1) return null;
+        return <text key={i} x={toX(i)} y={_h - 4} textAnchor="middle" fill="#64748b" fontSize={11}>{d[xAxis.props.dataKey]}</text>;
+      })}
+      {yAxis && yTicks.map((v, i) => <text key={i} x={ml - 4} y={toY(v) + 4} textAnchor="end" fill="#475569" fontSize={10}>{yAxis.props.tickFormatter ? yAxis.props.tickFormatter(v) : Math.round(v)}</text>)}
+      {/* hover crosshair */}
+      {hov !== null && (() => {
+        const x = toX(hov);
+        return <>
+          <line x1={x} x2={x} y1={mt} y2={mt + ih} stroke="#334155" strokeWidth={1} strokeDasharray="3 3" />
+          {areas.map((a, ai) => { const v = data[hov][a.props.dataKey] || 0; return <circle key={ai} cx={x} cy={toY(v)} r={4} fill={a.props.stroke} />; })}
+          <rect x={Math.min(x + 6, _w - ml - 100)} y={mt + 4} width={92} height={areas.length * 18 + 10} rx={4} fill="#1e293b" stroke="#2a3a50" strokeWidth={1} />
+          {areas.map((a, ai) => { const v = data[hov][a.props.dataKey]; const fmt = yAxis && yAxis.props.tickFormatter ? yAxis.props.tickFormatter(v) : "EUR " + parseFloat(v).toLocaleString("it-IT", { minimumFractionDigits: 0 }); return <text key={ai} x={Math.min(x + 12, _w - ml - 94)} y={mt + 16 + ai * 18} fill="#e2e8f0" fontSize={10}>{a.props.name}: {fmt}</text>; })}
+        </>;
+      })()}
+      <rect x={ml} y={mt} width={iw} height={ih} fill="transparent" onMouseMove={e => { const svgRect = e.currentTarget.ownerSVGElement.getBoundingClientRect(); const px = e.clientX - svgRect.left - ml; const idx = Math.round((px / iw) * (data.length - 1)); setHov(Math.max(0, Math.min(data.length - 1, idx))); }} onMouseLeave={() => setHov(null)} style={{ cursor: "crosshair" }} />
+    </svg>
+  );
+}
+function Area({ dataKey, stroke, strokeWidth, strokeDasharray, fill, dot, name, activeDot }) { return null; }
+function ReferenceLine({ y, stroke, strokeDasharray }) { return null; }
+
+// ── CONSTANTS ──────────────────────────────────────────────
+const MODEL = "claude-sonnet-4-20250514";
+
+const DEFAULT_LOTS = [
+  { id:"L1",  ticker:"VUAA",   buyDate:"2025-02-19", buyPrice:111.77,  qty:73  },
+  { id:"L2",  ticker:"XLYP6",  buyDate:"2025-02-19", buyPrice:259.25,  qty:26  },
+  { id:"L3",  ticker:"EIMI",   buyDate:"2025-02-19", buyPrice:34.295,  qty:79  },
+  { id:"L4",  ticker:"EM710",  buyDate:"2025-02-19", buyPrice:166.13,  qty:48  },
+  { id:"L5",  ticker:"X.IUSN", buyDate:"2025-02-20", buyPrice:7.509,   qty:178 },
+  { id:"L6",  ticker:"EM710",  buyDate:"2025-02-27", buyPrice:167.70,  qty:6   },
+  { id:"L7",  ticker:"XMJP",   buyDate:"2025-02-27", buyPrice:79.45,   qty:12  },
+  { id:"L8",  ticker:"VUAA",   buyDate:"2025-05-05", buyPrice:94.84,   qty:10  },
+  { id:"L9",  ticker:"VUAA",   buyDate:"2025-05-16", buyPrice:101.08,  qty:25  },
+  { id:"L10", ticker:"XEON",   buyDate:"2025-05-16", buyPrice:146.2474,qty:62  },
+];
+
+const HINTS = {
+  VUAA: "Vanguard S&P 500 UCITS ETF Acc",
+  XLYP6: "Amundi Core STOXX Europe 600 UCITS ETF Acc",
+  EIMI: "iShares Core MSCI EM IMI UCITS ETF Acc",
+  EM710: "Amundi Euro Gov Bond 7-10Y UCITS ETF Acc",
+  "X.IUSN": "iShares MSCI World Small Cap UCITS ETF",
+  XMJP: "Xtrackers MSCI Japan UCITS ETF 1C",
+  XEON: "Xtrackers II EUR Overnight Rate Swap UCITS ETF 1C",
+};
+
+const ISIN_MAP = {
+  VUAA: "IE00BFMXXD54", XLYP6: "LU0908500753", EIMI: "IE00BKM4GZ66",
+  EM710: "LU1287023185", "X.IUSN": "IE00BF4RFH31", XMJP: "LU0274209740", XEON: "LU0290358497",
+};
+
+const CATEGORIES = {
+  VUAA: "US Equity", XLYP6: "Europe Equity", EIMI: "Emerging Markets",
+  EM710: "Euro Bonds", "X.IUSN": "Global Small Cap", XMJP: "Japan Equity", XEON: "Money Market",
+};
+
+const DEFAULT_PRICES = {
+  VUAA:    { price: 111.92,   dayChange: -0.62, name: "Vanguard S&P 500 UCITS ETF Acc", category: "US Equity" },
+  XLYP6:  { price: 305.80,   dayChange: 0.08,  name: "Amundi Core STOXX Europe 600 UCITS ETF Acc", category: "Europe Equity" },
+  EIMI:   { price: 43.405,   dayChange: -0.38, name: "iShares Core MSCI EM IMI UCITS ETF Acc", category: "Emerging Markets" },
+  EM710:  { price: 173.66,   dayChange: 0.23,  name: "Amundi Euro Gov Bond 7-10Y UCITS ETF Acc", category: "Euro Bonds" },
+  "X.IUSN":{ price: 8.406,   dayChange: -0.30, name: "iShares MSCI World Small Cap UCITS ETF", category: "Global Small Cap" },
+  XMJP:   { price: 97.82,    dayChange: -0.09, name: "Xtrackers MSCI Japan UCITS ETF 1C", category: "Japan Equity" },
+  XEON:   { price: 148.5389, dayChange: 0.02,  name: "Xtrackers II EUR Overnight Rate Swap UCITS ETF 1C", category: "Money Market" },
+};
+
+const PAL = ["#3b82f6","#22c55e","#5B9BD5","#ef4444","#A78BDB","#45B5AA","#F2C94C","#EB6B9D","#72C2E8","#E8A955"];
+
+// ── ETF COMPOSITION DATA ────────────────────────────────────
+const ETF_COMPOSITION = {
+  VUAA: {
+    top_holdings: [
+      {name:"Apple",pct:7.1,sector:"Technology"},{name:"Nvidia",pct:6.5,sector:"Technology"},
+      {name:"Microsoft",pct:6.3,sector:"Technology"},{name:"Amazon",pct:3.7,sector:"Cons. Disc."},
+      {name:"Alphabet A",pct:2.2,sector:"Communication"},{name:"Meta",pct:2.5,sector:"Communication"},
+      {name:"Alphabet C",pct:1.9,sector:"Communication"},{name:"Berkshire Hathaway",pct:1.7,sector:"Financials"},
+      {name:"Broadcom",pct:2.1,sector:"Technology"},{name:"Tesla",pct:1.4,sector:"Cons. Disc."},
+    ],
+    sectors: [
+      {name:"Technology",pct:32.8},{name:"Financials",pct:13.4},{name:"Healthcare",pct:11.5},
+      {name:"Cons. Disc.",pct:10.8},{name:"Communication",pct:9.1},{name:"Industrials",pct:8.2},
+      {name:"Cons. Staples",pct:5.5},{name:"Energy",pct:3.6},{name:"Real Estate",pct:2.3},{name:"Other",pct:2.8},
+    ],
+    countries: [{name:"USA",pct:100}],
+  },
+  XLYP6: {
+    top_holdings: [
+      {name:"Novo Nordisk",pct:3.1,sector:"Healthcare"},{name:"ASML",pct:2.7,sector:"Technology"},
+      {name:"AstraZeneca",pct:2.3,sector:"Healthcare"},{name:"Shell",pct:1.9,sector:"Energy"},
+      {name:"Nestle",pct:1.8,sector:"Cons. Staples"},{name:"LVMH",pct:1.7,sector:"Cons. Disc."},
+      {name:"SAP",pct:1.7,sector:"Technology"},{name:"Roche",pct:1.5,sector:"Healthcare"},
+      {name:"Siemens",pct:1.4,sector:"Industrials"},{name:"Allianz",pct:1.2,sector:"Financials"},
+    ],
+    sectors: [
+      {name:"Financials",pct:18.8},{name:"Industrials",pct:14.1},{name:"Healthcare",pct:13.9},
+      {name:"Cons. Disc.",pct:10.2},{name:"Technology",pct:9.6},{name:"Cons. Staples",pct:9.0},
+      {name:"Energy",pct:6.3},{name:"Materials",pct:4.7},{name:"Communication",pct:4.5},{name:"Other",pct:8.9},
+    ],
+    countries: [
+      {name:"UK",pct:22.4},{name:"Francia",pct:17.8},{name:"Germania",pct:14.9},
+      {name:"Svizzera",pct:13.2},{name:"Danimarca",pct:6.7},{name:"Olanda",pct:5.8},
+      {name:"Svezia",pct:5.1},{name:"Spagna",pct:4.0},{name:"Italia",pct:3.6},{name:"Altro",pct:6.5},
+    ],
+  },
+  EIMI: {
+    top_holdings: [
+      {name:"Samsung Electronics",pct:3.7,sector:"Technology"},{name:"Taiwan Semiconductor",pct:3.4,sector:"Technology"},
+      {name:"Tencent",pct:3.1,sector:"Communication"},{name:"Alibaba",pct:1.7,sector:"Cons. Disc."},
+      {name:"Reliance Industries",pct:1.5,sector:"Energy"},{name:"ICICI Bank",pct:1.3,sector:"Financials"},
+      {name:"Infosys",pct:1.1,sector:"Technology"},{name:"HDFC Bank",pct:1.0,sector:"Financials"},
+      {name:"Meituan",pct:0.9,sector:"Cons. Disc."},{name:"China Construction Bank",pct:0.8,sector:"Financials"},
+    ],
+    sectors: [
+      {name:"Financials",pct:22.3},{name:"Technology",pct:20.5},{name:"Cons. Disc.",pct:12.8},
+      {name:"Communication",pct:9.0},{name:"Materials",pct:7.6},{name:"Energy",pct:6.8},
+      {name:"Industrials",pct:5.9},{name:"Cons. Staples",pct:5.0},{name:"Healthcare",pct:4.2},{name:"Other",pct:5.9},
+    ],
+    countries: [
+      {name:"Cina",pct:26.1},{name:"India",pct:20.2},{name:"Taiwan",pct:15.0},
+      {name:"Corea del Sud",pct:11.8},{name:"Brasile",pct:4.9},{name:"Arabia Saudita",pct:4.0},
+      {name:"Sudafrica",pct:3.1},{name:"Messico",pct:2.4},{name:"Indonesia",pct:1.9},{name:"Altro",pct:10.6},
+    ],
+  },
+  "X.IUSN": {
+    top_holdings: [
+      {name:"Sprouts Farmers",pct:0.4,sector:"Cons. Staples"},{name:"Applied Industrial",pct:0.3,sector:"Industrials"},
+      {name:"Installed Building",pct:0.3,sector:"Industrials"},{name:"Penumbra",pct:0.3,sector:"Healthcare"},
+      {name:"WD-40 Co.",pct:0.2,sector:"Materials"},{name:"Globant",pct:0.2,sector:"Technology"},
+      {name:"UFP Technologies",pct:0.2,sector:"Industrials"},{name:"Dorman Products",pct:0.2,sector:"Cons. Disc."},
+      {name:"Kinsale Capital",pct:0.2,sector:"Financials"},{name:"Altro (3500+ titoli)",pct:97.7,sector:"Diversified"},
+    ],
+    sectors: [
+      {name:"Industrials",pct:20.9},{name:"Financials",pct:15.1},{name:"Technology",pct:13.4},
+      {name:"Healthcare",pct:12.7},{name:"Cons. Disc.",pct:11.3},{name:"Real Estate",pct:8.4},
+      {name:"Materials",pct:5.9},{name:"Cons. Staples",pct:5.1},{name:"Energy",pct:3.7},{name:"Other",pct:3.5},
+    ],
+    countries: [
+      {name:"USA",pct:57.2},{name:"Giappone",pct:14.4},{name:"UK",pct:7.9},
+      {name:"Canada",pct:5.3},{name:"Australia",pct:3.9},{name:"Germania",pct:2.8},
+      {name:"Svezia",pct:2.2},{name:"Francia",pct:1.9},{name:"Altro",pct:4.4},
+    ],
+  },
+  XMJP: {
+    top_holdings: [
+      {name:"Toyota Motor",pct:4.7,sector:"Cons. Disc."},{name:"Sony Group",pct:3.1,sector:"Communication"},
+      {name:"Keyence",pct:2.8,sector:"Technology"},{name:"Mitsubishi UFJ",pct:2.6,sector:"Financials"},
+      {name:"Fast Retailing",pct:2.1,sector:"Cons. Disc."},{name:"Shin-Etsu Chemical",pct:2.0,sector:"Materials"},
+      {name:"Recruit Holdings",pct:1.9,sector:"Industrials"},{name:"Sumitomo Mitsui",pct:1.8,sector:"Financials"},
+      {name:"Daiichi Sankyo",pct:1.7,sector:"Healthcare"},{name:"Honda Motor",pct:1.6,sector:"Cons. Disc."},
+    ],
+    sectors: [
+      {name:"Industrials",pct:20.6},{name:"Cons. Disc.",pct:18.3},{name:"Technology",pct:15.7},
+      {name:"Financials",pct:13.4},{name:"Healthcare",pct:8.8},{name:"Materials",pct:7.9},
+      {name:"Communication",pct:6.4},{name:"Real Estate",pct:3.3},{name:"Cons. Staples",pct:2.9},{name:"Other",pct:2.7},
+    ],
+    countries: [{name:"Giappone",pct:100}],
+  },
+};
+
+// ── COMPOSITION CALCULATOR ──────────────────────────────────
+function computeComposition(holdings) {
+  const equityTickers = ["VUAA","XLYP6","EIMI","X.IUSN","XMJP"];
+  const equityHoldings = holdings.filter(h => equityTickers.includes(h.ticker));
+  const equityTotal = equityHoldings.reduce((s, h) => s + h.value, 0);
+  if (equityTotal === 0) return null;
+  const sectorMap = {}, countryMap = {}, holdingMap = {};
+  equityHoldings.forEach(h => {
+    const etfData = ETF_COMPOSITION[h.ticker];
+    if (!etfData) return;
+    const w = h.value / equityTotal;
+    (etfData.sectors || []).forEach(s => { sectorMap[s.name] = (sectorMap[s.name] || 0) + s.pct * w; });
+    (etfData.countries || []).forEach(c => { countryMap[c.name] = (countryMap[c.name] || 0) + c.pct * w; });
+    (etfData.top_holdings || []).forEach(hh => {
+      if (hh.name.startsWith("Altro")) return;
+      if (!holdingMap[hh.name]) holdingMap[hh.name] = { name: hh.name, pct: 0, sector: hh.sector, etf: h.ticker };
+      holdingMap[hh.name].pct += (hh.pct / 100) * (h.w / 100) * 100;
+    });
+  });
+  const portfolio_sectors = Object.entries(sectorMap).map(([name, pct]) => ({ name, pct: parseFloat(pct.toFixed(2)) })).sort((a, b) => b.pct - a.pct);
+  const portfolio_countries = Object.entries(countryMap).map(([name, pct]) => ({ name, pct: parseFloat(pct.toFixed(2)) })).sort((a, b) => b.pct - a.pct).slice(0, 12);
+  const portfolio_top_holdings = Object.values(holdingMap).sort((a, b) => b.pct - a.pct).slice(0, 15);
+  const etf_details = {};
+  equityHoldings.forEach(h => { if (ETF_COMPOSITION[h.ticker]) etf_details[h.ticker] = ETF_COMPOSITION[h.ticker]; });
+  return { etf_details, portfolio_sectors, portfolio_countries, portfolio_top_holdings };
+}
+
+// ── STORAGE (localStorage) ──────────────────────────────────
+function sGet(key) {
+  try { const v = localStorage.getItem("pt_" + key); return v ? JSON.parse(v) : null; } catch(e) { return null; }
+}
+function sPut(key, val) {
+  try { localStorage.setItem("pt_" + key, JSON.stringify(val)); } catch(e) { console.warn("sPut error", e); }
+}
+
+// ── API CALL ────────────────────────────────────────────────
+async function callAPI(apiKey, systemPrompt, userPrompt, opts) {
+  if (!apiKey) throw new Error("API key Anthropic mancante. Inseriscila nelle impostazioni.");
+  const o = opts || {};
+  const timeout = o.timeoutMs || 120000;
+  let userContent = o.imageBase64
+    ? [{ type:"image", source:{ type:"base64", media_type: o.imageMime||"image/jpeg", data: o.imageBase64 }}, { type:"text", text: userPrompt }]
+    : userPrompt;
+  const baseBody = { model: MODEL, max_tokens: 4096, system: systemPrompt };
+  if (o.search) baseBody.tools = [{ type:"web_search_20250305", name:"web_search" }];
+  let messages = [{ role:"user", content: userContent }];
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+  try {
+    let iterations = 0;
+    while (iterations < 8) {
+      iterations++;
+      const r = await fetch("https://api.anthropic.com/v1/messages", {
+        method:"POST",
+        headers:{ "Content-Type":"application/json", "x-api-key": apiKey, "anthropic-version":"2023-06-01", "anthropic-dangerous-direct-browser-access":"true" },
+        body: JSON.stringify({ ...baseBody, messages }),
+        signal: controller.signal,
+      });
+      if (!r.ok) { const t = await r.text().catch(()=>"?"); throw new Error("HTTP " + r.status + ": " + t.slice(0,200)); }
+      const data = await r.json();
+      if (data.error) throw new Error(data.error.message || "API error");
+      const blocks = data.content || [];
+      if (data.stop_reason === "end_turn" || !blocks.some(b => b.type === "tool_use")) {
+        const text = blocks.filter(b => b.type === "text" && b.text).map(b => b.text).join("\n");
+        if (!text.trim()) throw new Error("Risposta vuota dal modello.");
+        clearTimeout(timer);
+        return text;
+      }
+      messages.push({ role:"assistant", content: blocks });
+      const toolResults = blocks.filter(b => b.type === "tool_use").map(b => ({ type:"tool_result", tool_use_id: b.id, content:"" }));
+      messages.push({ role:"user", content: toolResults });
+    }
+    clearTimeout(timer);
+    throw new Error("Troppe iterazioni nel tool loop");
+  } catch(err) {
+    clearTimeout(timer);
+    if (err.name === "AbortError") throw new Error("Timeout dopo " + (timeout/1000) + "s");
+    throw err;
+  }
+}
+
+// ── JSON PARSER ─────────────────────────────────────────────
+function extractJSON(text) {
+  let s = text.replace(/```[a-zA-Z]*\s*/g,"").replace(/```/g,"").trim();
+  try { return JSON.parse(s); } catch(e) {}
+  let depth = 0, start = -1;
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === "{") { if (depth===0) start=i; depth++; }
+    else if (s[i] === "}") { depth--; if (depth===0 && start>=0) { try { return JSON.parse(s.slice(start,i+1)); } catch(e2){ start=-1; } } }
+  }
+  throw new Error("No JSON found. Text: " + text.slice(0,80));
+}
+
+// ── PORTFOLIO MATH ───────────────────────────────────────────
+function buildHoldings(lots, prices) {
+  const map = {};
+  lots.forEach(lot => {
+    if (!map[lot.ticker]) map[lot.ticker] = { ticker: lot.ticker, lots:[], qty:0, cost:0 };
+    map[lot.ticker].lots.push(lot);
+    map[lot.ticker].qty += lot.qty;
+    map[lot.ticker].cost += lot.qty * lot.buyPrice;
+  });
+  const list = Object.values(map).map(g => {
+    const avg = g.cost / g.qty;
+    const p = prices[g.ticker];
+    const cur = p ? p.price : avg;
+    const val = g.qty * cur;
+    const pnl = val - g.cost;
+    const pnlP = g.cost > 0 ? ((pnl/g.cost)*100) : 0;
+    const dc = p ? (p.dayChange||0) : 0;
+    return { ticker:g.ticker, name:(p&&p.name)||HINTS[g.ticker]||g.ticker, cat:(p&&p.category)||CATEGORIES[g.ticker]||"", lots:g.lots, qty:g.qty, avg, cost:g.cost, price:cur, value:val, pnl, pnlP, dayChange:dc, dayPnl:val*(dc/100), w:0 };
+  });
+  const tv = list.reduce((s,h)=>s+h.value,0);
+  list.forEach(h => { h.w = tv>0 ? (h.value/tv)*100 : 0; });
+  const tc = list.reduce((s,h)=>s+h.cost,0);
+  return { list, tv, tc };
+}
+
+// ── SMALL COMPONENTS ─────────────────────────────────────────
+function Spin({ t }) {
+  const [d, setD] = useState("");
+  useEffect(() => { const i = setInterval(()=>setD(p=>p.length>=3?"":p+"."),400); return ()=>clearInterval(i); },[]);
+  return (
+    <div style={{display:"flex",alignItems:"center",gap:10,padding:"14px 0"}}>
+      <div style={{width:16,height:16,borderRadius:"50%",border:"2px solid #1e2a3a",borderTopColor:"#3b82f6",animation:"spin 0.8s linear infinite"}} />
+      <span style={{fontSize:13,color:"#64748b"}}>{t}{d}</span>
+    </div>
+  );
+}
+function ErrBox({ m, retry }) {
+  return (
+    <div style={{padding:"10px 14px",borderRadius:8,background:"rgba(239,68,68,0.06)",border:"1px solid rgba(239,68,68,0.18)",marginBottom:12,display:"flex",alignItems:"center",gap:10}}>
+      <span style={{fontSize:14,color:"#ef4444"}}>!</span>
+      <span style={{flex:1,fontSize:12,color:"#ef4444",wordBreak:"break-word"}}>{m}</span>
+      {retry && <button onClick={retry} style={{background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.2)",borderRadius:6,padding:"4px 10px",color:"#ef4444",fontSize:11,fontWeight:600,cursor:"pointer",flexShrink:0}}>Retry</button>}
+    </div>
+  );
+}
+function PnlVal({ v, p, sz }) {
+  const size = sz||13; const ok = v>=0;
+  return (
+    <span style={{fontSize:size,fontWeight:600,color:ok?"#22c55e":"#ef4444",fontFamily:"'IBM Plex Mono',monospace"}}>
+      {ok?"+":""}&euro;{Math.abs(v).toLocaleString("it-IT",{minimumFractionDigits:2,maximumFractionDigits:2})}
+      {p!==undefined && <span style={{fontSize:size-2,opacity:0.75,marginLeft:4}}>({ok?"+":""}{p.toFixed(2)}%)</span>}
+    </span>
+  );
+}
+function SBadge({ s }) {
+  const n = parseFloat(s)||0;
+  const c = n>0.3?"#22c55e":n<-0.3?"#ef4444":"#f59e0b";
+  const bg = n>0.3?"rgba(34,197,94,0.08)":n<-0.3?"rgba(239,68,68,0.08)":"rgba(245,158,11,0.08)";
+  const border = n>0.3?"rgba(34,197,94,0.2)":n<-0.3?"rgba(239,68,68,0.2)":"rgba(245,158,11,0.2)";
+  const l = n>0.3?"Bullish":n<-0.3?"Bearish":"Neutral";
+  return <span style={{display:"inline-flex",alignItems:"center",gap:4,background:bg,border:"1px solid "+border,borderRadius:5,padding:"2px 8px",fontSize:11,fontWeight:600,color:c}}>* {l}</span>;
+}
+
+// ── MAIN APP ─────────────────────────────────────────────────
+function App() {
+  const [tab, setTab] = useState("dashboard");
+  const [lots, setLots] = useState(() => sGet("lots-v2") || DEFAULT_LOTS);
+  const [prices, setPrices] = useState(() => { const c = sGet("prices"); return (c&&c.d) ? c.d : DEFAULT_PRICES; });
+  const [lastUp, setLastUp] = useState(() => { const c = sGet("prices"); return c&&c.t ? new Date(c.t) : new Date("2026-03-01"); });
+  const [pLoad, setPLoad] = useState(false);
+  const [pErr, setPErr] = useState(null);
+  const [sent, setSent] = useState(null);
+  const [sLoad, setSLoad] = useState(false);
+  const [sErr, setSErr] = useState(null);
+  const [macro, setMacro] = useState(null);
+  const [mLoad, setMLoad] = useState(false);
+  const [mErr, setMErr] = useState(null);
+  const [logs, setLogs] = useState(["App caricata"]);
+  const [showLog, setShowLog] = useState(false);
+  const [addF, setAddF] = useState({ticker:"",date:"",price:"",qty:""});
+  const [comp, setComp] = useState(null);
+  const [cLoad, setCLoad] = useState(false);
+  const [cErr, setCErr] = useState(null);
+  const [targets, setTargets] = useState(() => sGet("targets") || { VUAA:30, XLYP6:20, EIMI:10, EM710:20, "X.IUSN":5, XMJP:5, XEON:10 });
+  const [rebCash, setRebCash] = useState("");
+  const [rebMode, setRebMode] = useState("buy");
+  const [simTicker, setSimTicker] = useState("");
+  const [simQty, setSimQty] = useState("");
+  const [simPrice, setSimPrice] = useState("");
+  const [simResult, setSimResult] = useState(null);
+  const [history, setHistory] = useState(() => sGet("history") || []);
+  const [mob, setMob] = useState(window.innerWidth < 600);
+  const [showSettings, setShowSettings] = useState(false);
+  const [apiKey, setApiKey] = useState(() => sGet("apikey") || "");
+  const [apiKeyInput, setApiKeyInput] = useState(() => sGet("apikey") || "");
+
+  useEffect(() => {
+    const h = () => setMob(window.innerWidth < 600);
+    window.addEventListener("resize", h);
+    return () => window.removeEventListener("resize", h);
+  }, []);
+
+  const L = useCallback((msg) => {
+    console.log("[LOG]", msg);
+    setLogs(prev => [...prev.slice(-40), new Date().toLocaleTimeString("it-IT") + " " + msg]);
+  }, []);
+
+  const hData = useMemo(() => buildHoldings(lots, prices), [lots, prices]);
+  const holdings = hData.list;
+  const totalVal = hData.tv;
+  const totalCost = hData.tc;
+  const totalPnl = totalVal - totalCost;
+  const totalPnlP = totalCost > 0 ? (totalPnl/totalCost)*100 : 0;
+  const totalDayPnl = holdings.reduce((s,h)=>s+h.dayPnl,0);
+  const pie = holdings.map((h,i)=>({name:h.ticker,value:h.value,fill:PAL[i%PAL.length]}));
+
+  const fileRef = useRef(null);
+
+  const saveSnapshot = useCallback((val, cost, holdingsList, dateOverride) => {
+    const today = dateOverride || new Date().toISOString().slice(0,10);
+    const snap = {
+      date: today,
+      totalVal: parseFloat(val.toFixed(2)),
+      totalCost: parseFloat(cost.toFixed(2)),
+      pnl: parseFloat((val-cost).toFixed(2)),
+      pnlP: cost>0 ? parseFloat(((val-cost)/cost*100).toFixed(2)) : 0,
+      positions: holdingsList.map(h=>({ticker:h.ticker,value:parseFloat(h.value.toFixed(2)),w:parseFloat(h.w.toFixed(1))})),
+    };
+    setHistory(prev => {
+      const filtered = prev.filter(s=>s.date!==today);
+      const next = [...filtered, snap].sort((a,b)=>a.date.localeCompare(b.date));
+      sPut("history", next);
+      return next;
+    });
+    L("Snapshot salvato: " + today + " (EUR " + val.toFixed(0) + ")");
+  }, [L]);
+
+  const handleScreenshot = useCallback(async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    setPLoad(true); setPErr(null);
+    L("Screenshot: " + file.name);
+    try {
+      const base64 = await new Promise((res,rej) => {
+        const reader = new FileReader();
+        reader.onload = () => res(reader.result.split(",")[1]);
+        reader.onerror = () => rej(new Error("Errore lettura file"));
+        reader.readAsDataURL(file);
+      });
+      const tickers = Object.keys(ISIN_MAP);
+      const tickerList = tickers.map(t => t + " (" + HINTS[t] + ", ISIN: " + ISIN_MAP[t] + ")").join("\n");
+      const text = await callAPI(apiKey,
+        "You extract ETF prices from broker screenshots. Return ONLY valid JSON. No markdown, no backticks.",
+        "This is a screenshot from an Italian broker app showing ETF positions.\n\nExtract the CURRENT PRICE and daily change % for each ETF:\n" + tickerList + "\n\nI need the UNIT PRICE (prezzo unitario), not the total position value.\n\nReturn JSON like:\n{\"VUAA\":{\"price\":111.92,\"dayChange\":-0.62},...}\n\nInclude ALL ETFs you can identify. Prices in EUR.",
+        { imageBase64: base64, imageMime: file.type||"image/jpeg", timeoutMs: 60000 }
+      );
+      const parsed = extractJSON(text);
+      const updated = { ...DEFAULT_PRICES };
+      let ok = 0;
+      tickers.forEach(t => {
+        const d = parsed[t];
+        if (d && typeof d.price === "number" && d.price > 0) {
+          const buyLots = lots.filter(l => l.ticker === t);
+          if (buyLots.length > 0) {
+            const avgBuy = buyLots.reduce((s,l)=>s+l.qty*l.buyPrice,0)/buyLots.reduce((s,l)=>s+l.qty,0);
+            const ratio = d.price/avgBuy;
+            if (ratio >= 0.4 && ratio <= 2.5) {
+              updated[t] = { ...updated[t], price: d.price, dayChange: d.dayChange||0 };
+              ok++;
+            }
+          } else {
+            updated[t] = { ...updated[t], price: d.price, dayChange: d.dayChange||0 };
+            ok++;
+          }
+        }
+      });
+      L(">>> " + ok + "/" + tickers.length + " prezzi letti");
+      setPrices(updated); setLastUp(new Date());
+      sPut("prices", { d: updated, t: Date.now() });
+      const snap = buildHoldings(lots, updated);
+      if (snap.tv > 0) saveSnapshot(snap.tv, snap.tc, snap.list);
+    } catch(err) {
+      L("ERRORE: " + err.message);
+      setPErr("Errore lettura screenshot: " + err.message);
+    } finally { setPLoad(false); }
+  }, [lots, L, apiKey, saveSnapshot]);
+
+  const doFetchComp = useCallback(() => {
+    setCLoad(true); setCErr(null); setComp(null);
+    try {
+      const result = computeComposition(holdings);
+      if (!result) throw new Error("Nessun ETF azionario trovato");
+      setComp(result);
+    } catch(err) { setCErr(err.message); }
+    finally { setCLoad(false); }
+  }, [holdings]);
+
+  const doFetchSent = useCallback(async () => {
+    if (sLoad) return;
+    setSLoad(true); setSErr(null);
+    try {
+      const cats = [...new Set(holdings.map(h=>h.cat).filter(Boolean))];
+      const today = new Date().toLocaleDateString("it-IT");
+      const sectorsJson = cats.slice(0,4).map(c=>'"'+c+'":{"sentiment":0.0,"headline":"notizia","impact":"impatto"}').join(",");
+      const etfJson = holdings.map(h=>'"'+h.ticker+'":{"sentiment":0.0,"signal":"segnale breve"}').join(",");
+      const prompt = 'Search "mercati finanziari ETF notizie ' + today + '" then return this JSON with real data (Italian text, sentiment -1 to +1):\n{"overall_sentiment":0.1,"overall_summary":"sintesi","sectors":{' + sectorsJson + '},"etf_signals":{' + etfJson + '},"key_risks":["r1","r2","r3"],"opportunities":["o1","o2"]}\nReturn ONLY the JSON.';
+      const text = await callAPI(apiKey, "You are a financial sentiment analyst. Do ONE web search about current market conditions, then return ONLY raw JSON. No markdown. Start with {", prompt, { search:true, timeoutMs:90000 });
+      setSent(extractJSON(text));
+    } catch(err) { setSErr(err.message); }
+    finally { setSLoad(false); }
+  }, [holdings, sLoad, apiKey]);
+
+  const doFetchMacro = useCallback(async () => {
+    if (mLoad) return;
+    setMLoad(true); setMErr(null);
+    try {
+      const text = await callAPI(apiKey,
+        "You are a macroeconomic analyst. Return ONLY raw JSON, no markdown, no backticks. Start with {",
+        'Based on your most recent knowledge, provide latest values for these indicators.\nReturn ONLY this JSON:\n{"indicators":{"ecb_rate":{"value":2.65,"unit":"%","trend":"declining","prev":3.15},"fed_rate":{"value":4.25,"unit":"%","trend":"stable","prev":4.5},"eu_inflation":{"value":2.3,"unit":"%","trend":"declining","prev":2.7},"us_inflation":{"value":2.9,"unit":"%","trend":"declining","prev":3.2},"eu_gdp":{"value":1.0,"unit":"%","trend":"stable","prev":0.8},"us_gdp":{"value":2.3,"unit":"%","trend":"stable","prev":2.8},"eurusd":{"value":1.05,"unit":"","trend":"stable","prev":1.08},"vix":{"value":19.0,"unit":"","trend":"rising","prev":15.0},"stoxx600":{"value":545,"unit":"","trend":"rising","prev":510}},"economic_cycle":"Mid Expansion","cycle_summary":"Sintesi in italiano.","portfolio_implications":["implication1","implication2","implication3"]}\nReplace example values with your best knowledge for early 2026. Return ONLY the JSON.',
+        { timeoutMs:30000 }
+      );
+      setMacro(extractJSON(text));
+    } catch(err) { setMErr(err.message); }
+    finally { setMLoad(false); }
+  }, [mLoad, apiKey]);
+
+  const addLot = () => {
+    const { ticker, date, price, qty } = addF;
+    if (!ticker||!date||!price||!qty) return;
+    const nl = { id:"L"+Date.now(), ticker:ticker.toUpperCase().trim(), buyDate:date, buyPrice:parseFloat(price), qty:parseFloat(qty) };
+    setLots(prev => { const n=[...prev,nl]; sPut("lots-v2",n); return n; });
+    setAddF({ticker:"",date:"",price:"",qty:""});
+  };
+  const removeLot = (id) => { setLots(prev=>{ const n=prev.filter(l=>l.id!==id); sPut("lots-v2",n); return n; }); };
+
+  useEffect(() => {
+    if (tab==="composizione" && !comp && holdings.length>0) {
+      const result = computeComposition(holdings);
+      if (result) setComp(result);
+    }
+  }, [tab, holdings]);
+
+  const tabs = [
+    {k:"dashboard",l:"Dashboard"},{k:"holdings",l:"Holdings"},{k:"lots",l:"Lotti"},
+    {k:"rebalance",l:"Rebalancer"},{k:"storico",l:"Storico"},{k:"composizione",l:"Composizione"},
+    {k:"market",l:"Market Pulse"},{k:"macro",l:"Macro"},
+  ];
+
+  const SECTOR_COLORS = {
+    "Technology":"#5B9BD5","Financials":"#3b82f6","Industrials":"#22c55e","Healthcare":"#ef4444",
+    "Cons. Disc.":"#A78BDB","Communication":"#45B5AA","Cons. Staples":"#F2C94C",
+    "Materials":"#EB6B9D","Energy":"#E8A955","Real Estate":"#72C2E8","Other":"#334155","Diversified":"#334155"
+  };
+  const getC = (s) => SECTOR_COLORS[s] || "#3b82f6";
+
+  return (
+    <div style={{minHeight:"100vh",background:"#0d1117",color:"#e2e8f0",paddingBottom:120,boxSizing:"border-box",overflowX:"hidden"}}>
+
+      {/* HEADER */}
+      <div style={{padding:mob?"12px 14px":"12px 24px",borderBottom:"1px solid #1e2a3a",background:"#0d1117",position:"sticky",top:0,zIndex:50}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <div style={{width:28,height:28,borderRadius:6,background:"#3b82f6",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:"#fff",flexShrink:0}}>PT</div>
+            <span style={{fontSize:mob?15:17,fontWeight:700,color:"#f1f5f9"}}>Portfolio Tracker</span>
+            {lastUp && (
+              <div style={{display:"flex",alignItems:"center",gap:5,background:"rgba(34,197,94,0.08)",border:"1px solid rgba(34,197,94,0.15)",borderRadius:6,padding:"3px 8px"}}>
+                <div style={{width:5,height:5,borderRadius:"50%",background:"#22c55e",animation:"pulse 2s infinite"}} />
+                <span style={{fontSize:10,color:"#22c55e",fontWeight:500}}>{lastUp.toLocaleDateString("it-IT")}</span>
+              </div>
+            )}
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:6}}>
+            <input ref={fileRef} type="file" accept="image/*" onChange={handleScreenshot} style={{display:"none"}} />
+
+            <button onClick={()=>setShowLog(p=>!p)} style={{background:showLog?"#1e2a3a":"#161b27",border:"1px solid #1e2a3a",borderRadius:7,padding:"6px 10px",cursor:"pointer",color:"#64748b",fontSize:11,fontWeight:500}}>Log</button>
+            <button onClick={()=>setShowSettings(p=>!p)} style={{background:showSettings?"#1e2a3a":"#161b27",border:"1px solid "+(apiKey?"#1e2a3a":"#f59e0b"),borderRadius:7,padding:"6px 10px",cursor:"pointer",color:apiKey?"#64748b":"#f59e0b",fontSize:11,fontWeight:600}}>
+              {apiKey?"API OK":"API KEY"}
+            </button>
+          </div>
+        </div>
+        {showSettings && (
+          <div style={{marginTop:10,padding:14,background:"#0a0f1a",border:"1px solid #1e2a3a",borderRadius:8}}>
+            <div style={{fontSize:11,fontWeight:600,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:8}}>API Key Anthropic</div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              <input type="password" value={apiKeyInput} onChange={e=>setApiKeyInput(e.target.value)} placeholder="sk-ant-..." style={{flex:1,minWidth:200}} />
+              <button onClick={()=>{ setApiKey(apiKeyInput); sPut("apikey",apiKeyInput); setShowSettings(false); }} style={{background:"#3b82f6",border:"none",borderRadius:6,padding:"6px 16px",color:"#fff",fontSize:12,fontWeight:600,cursor:"pointer"}}>Salva</button>
+              {apiKey && <button onClick={()=>{ setApiKey(""); setApiKeyInput(""); sPut("apikey",""); }} style={{background:"#0f1520",border:"1px solid #1e2a3a",borderRadius:6,padding:"6px 12px",color:"#64748b",fontSize:12,cursor:"pointer"}}>Rimuovi</button>}
+            </div>
+            <div style={{fontSize:11,color:"#475569",marginTop:6}}>Necessaria per Prezzi (screenshot), Market Pulse e Macro. Ottenila su console.anthropic.com. Viene salvata solo in questo browser (localStorage).</div>
+          </div>
+        )}
+        {showLog && (
+          <div style={{marginTop:10,padding:10,background:"#0a0f1a",border:"1px solid #1e2a3a",borderRadius:8,maxHeight:180,overflowY:"auto",fontSize:10,fontFamily:"'IBM Plex Mono',monospace",lineHeight:1.8}}>
+            {logs.map((l,i) => <div key={i} style={{color:l.includes("ERRORE")?"#ef4444":l.includes("OK")?"#22c55e":"#64748b",wordBreak:"break-all"}}>{l}</div>)}
+          </div>
+        )}
+      </div>
+
+      {pLoad && <div style={{padding:mob?"0 14px":"0 24px"}}><Spin t="Leggo prezzi dallo screenshot..." /></div>}
+      {pErr && <div style={{padding:mob?"4px 14px":"4px 24px"}}><ErrBox m={pErr} retry={()=>fileRef.current&&fileRef.current.click()} /></div>}
+
+      {/* TABS */}
+      <div className="tab-row" style={{display:"flex",padding:mob?"0 14px":"0 24px",borderBottom:"1px solid #1e2a3a",overflowX:"auto",WebkitOverflowScrolling:"touch",background:"#0d1117"}}>
+        {tabs.map(t => (
+          <button key={t.k} onClick={()=>setTab(t.k)} style={{background:"none",border:"none",cursor:"pointer",padding:mob?"10px 10px":"11px 16px",fontSize:13,fontWeight:tab===t.k?600:400,whiteSpace:"nowrap",color:tab===t.k?"#f1f5f9":"#64748b",borderBottom:tab===t.k?"2px solid #3b82f6":"2px solid transparent",transition:"all 0.15s"}}>{t.l}</button>
+        ))}
+      </div>
+
+      <div style={{padding:mob?"16px 14px":"16px 24px"}}>
+
+        {/* ====== DASHBOARD ====== */}
+        {tab==="dashboard" && (
+          <div className="fu">
+            <div style={{display:"grid",gridTemplateColumns:mob?"1fr 1fr":"repeat(3,1fr)",gap:mob?10:12,marginBottom:16}}>
+              <div style={{background:"#161b27",border:"1px solid #1e2a3a",borderRadius:10,padding:mob?"14px 16px":"16px 20px",gridColumn:mob?"1 / -1":"auto"}}>
+                <div style={{fontSize:11,fontWeight:500,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:6}}>Valore Totale</div>
+                <div className="num" style={{fontSize:mob?22:28,fontWeight:700,color:"#f1f5f9"}}>&euro;{totalVal.toLocaleString("it-IT",{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+                <div style={{fontSize:11,color:"#475569",marginTop:4}}>Investito: <span className="num" style={{color:"#94a3b8"}}>&euro;{totalCost.toLocaleString("it-IT",{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div>
+              </div>
+              <div style={{background:"#161b27",border:"1px solid #1e2a3a",borderRadius:10,padding:mob?"14px 16px":"16px 20px"}}>
+                <div style={{fontSize:11,fontWeight:500,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:6}}>P&L Totale</div>
+                <div className="num" style={{fontSize:mob?18:24,fontWeight:700,color:totalPnl>=0?"#22c55e":"#ef4444"}}>{totalPnl>=0?"+":""}&euro;{Math.abs(totalPnl).toLocaleString("it-IT",{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+                <div className="num" style={{fontSize:12,fontWeight:600,color:totalPnl>=0?"#22c55e":"#ef4444",marginTop:2}}>{totalPnlP>=0?"+":""}{totalPnlP.toFixed(2)}%</div>
+              </div>
+              <div style={{background:"#161b27",border:"1px solid #1e2a3a",borderRadius:10,padding:mob?"14px 16px":"16px 20px"}}>
+                <div style={{fontSize:11,fontWeight:500,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:6}}>Oggi</div>
+                <div className="num" style={{fontSize:mob?18:24,fontWeight:700,color:totalDayPnl>=0?"#22c55e":"#ef4444"}}>{totalDayPnl>=0?"+":""}&euro;{Math.abs(totalDayPnl).toLocaleString("it-IT",{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+                <div style={{fontSize:11,color:"#475569",marginTop:2}}>{holdings.length} posizioni</div>
+              </div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:mob?"1fr":"1fr 260px",gap:12,marginBottom:16}}>
+              <div style={{background:"#161b27",border:"1px solid #1e2a3a",borderRadius:10,overflow:"hidden"}}>
+                {mob ? (
+                  <div style={{padding:14}}>
+                    {holdings.map((h,i)=>(
+                      <div key={h.ticker} style={{padding:"10px 0",borderBottom:"1px solid #0f1520"}}>
+                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+                          <div style={{display:"flex",alignItems:"center",gap:8}}>
+                            <div style={{width:8,height:8,borderRadius:2,background:PAL[i%PAL.length]}} />
+                            <span style={{fontWeight:700,color:"#3b82f6",fontSize:13}}>{h.ticker}</span>
+                            <span className="num" style={{fontSize:10,color:"#475569"}}>{h.w.toFixed(0)}%</span>
+                          </div>
+                          <PnlVal v={h.pnl} p={h.pnlP} sz={12} />
+                        </div>
+                        <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#64748b"}}>
+                          <span className="num">&euro;{h.value.toLocaleString("it-IT",{maximumFractionDigits:0})}</span>
+                          <span className="num">costo &euro;{h.cost.toLocaleString("it-IT",{maximumFractionDigits:0})}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <table style={{width:"100%",borderCollapse:"collapse"}}>
+                    <thead>
+                      <tr>{["Ticker","Nome","Valore","Costo","P&L","Peso"].map(h=>(
+                        <th key={h} className="sa-th" style={{textAlign:["Valore","Costo","P&L","Peso"].includes(h)?"right":"left"}}>{h}</th>
+                      ))}</tr>
+                    </thead>
+                    <tbody>
+                      {holdings.map(h=>(
+                        <tr key={h.ticker} style={{borderBottom:"1px solid #0f1520"}}>
+                          <td className="sa-td" style={{fontWeight:700,color:"#3b82f6"}}>{h.ticker}</td>
+                          <td className="sa-td" style={{maxWidth:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"#94a3b8",fontSize:12}}>{h.name}</td>
+                          <td className="sa-td num" style={{textAlign:"right",color:"#e2e8f0"}}>&euro;{h.value.toLocaleString("it-IT",{maximumFractionDigits:0})}</td>
+                          <td className="sa-td num" style={{textAlign:"right",color:"#64748b"}}>&euro;{h.cost.toLocaleString("it-IT",{maximumFractionDigits:0})}</td>
+                          <td className="sa-td" style={{textAlign:"right"}}><PnlVal v={h.pnl} p={h.pnlP} sz={12} /></td>
+                          <td className="sa-td num" style={{textAlign:"right",color:"#64748b"}}>{h.w.toFixed(1)}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+              <div style={{background:"#161b27",border:"1px solid #1e2a3a",borderRadius:10,padding:mob?14:16}}>
+                <div style={{fontSize:11,fontWeight:500,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:10}}>Allocazione</div>
+                <div style={{display:"flex",justifyContent:"center",marginBottom:8}}>
+                  <div style={{width:100,height:100}}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie data={pie} cx="50%" cy="50%" innerRadius={28} outerRadius={46} paddingAngle={2} dataKey="value" stroke="none">
+                          {pie.map((e,i)=><Cell key={i} fill={e.fill} />)}
+                        </Pie>
+                        <Tooltip formatter={(v)=>["\u20ac"+parseInt(v).toLocaleString("it-IT"),""]} contentStyle={{background:"#1e293b",border:"1px solid #2a3a50",borderRadius:8,fontSize:12,color:"#e2e8f0"}} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"4px 8px"}}>
+                  {holdings.map((h,i)=>(
+                    <div key={h.ticker} style={{display:"flex",alignItems:"center",gap:5}}>
+                      <div style={{width:6,height:6,borderRadius:1,background:PAL[i%PAL.length],flexShrink:0}} />
+                      <span style={{color:"#94a3b8",fontSize:10,fontWeight:500,flex:1}}>{h.ticker}</span>
+                      <span className="num" style={{color:"#cbd5e1",fontWeight:700,fontSize:10}}>{h.w.toFixed(1)}%</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div style={{background:"#161b27",border:"1px solid #1e2a3a",borderRadius:10,padding:mob?14:18}}>
+              <div style={{fontSize:11,fontWeight:500,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:12}}>P&L per Posizione</div>
+              <ResponsiveContainer width="100%" height={mob?160:200}>
+                <BarChart data={holdings.map(h=>({name:h.ticker,pnl:parseFloat(h.pnl.toFixed(2))}))} margin={{top:4,right:8,bottom:4,left:mob?0:16}}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e2a3a" />
+                  <XAxis dataKey="name" tick={{fill:"#64748b",fontSize:11}} stroke="#1e2a3a" />
+                  <YAxis tickFormatter={v=>"\u20ac"+v.toLocaleString()} tick={{fill:"#475569",fontSize:10}} stroke="#1e2a3a" />
+                  <Tooltip formatter={v=>["\u20ac"+parseFloat(v).toLocaleString("it-IT",{minimumFractionDigits:2}),""]} contentStyle={{background:"#1e293b",border:"1px solid #2a3a50",borderRadius:8,fontSize:12,color:"#e2e8f0"}} />
+                  <Bar dataKey="pnl" radius={[3,3,0,0]}>
+                    {holdings.map((h,i)=><Cell key={i} fill={h.pnl>=0?"rgba(34,197,94,0.65)":"rgba(239,68,68,0.65)"} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
+        {/* ====== HOLDINGS ====== */}
+        {tab==="holdings" && (
+          <div className="fu">
+            {holdings.map((h,idx)=>(
+              <div key={h.ticker} style={{background:"#161b27",border:"1px solid #1e2a3a",borderRadius:10,padding:20,marginBottom:16}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
+                  <div>
+                    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}>
+                      <div style={{width:10,height:10,borderRadius:3,background:PAL[idx%PAL.length]}} />
+                      <span style={{fontSize:18,fontWeight:700,color:"#3b82f6"}}>{h.ticker}</span>
+                      {h.cat && <span style={{fontSize:10,color:"#64748b",background:"#1e2a3a",padding:"2px 8px",borderRadius:4}}>{h.cat}</span>}
+                    </div>
+                    <div style={{fontSize:12,color:"#64748b"}}>{h.name}</div>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontSize:20,fontWeight:700,color:"#e2e8f0"}}>&euro;{h.price.toLocaleString("it-IT",{minimumFractionDigits:2,maximumFractionDigits:4})}</div>
+                    <div style={{fontSize:12,fontWeight:600,color:h.dayChange>=0?"#22c55e":"#ef4444"}}>{h.dayChange>=0?"+":""}{h.dayChange.toFixed(2)}% oggi</div>
+                  </div>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:mob?"1fr 1fr":"repeat(5,1fr)",gap:mob?10:12}}>
+                  {[["Quantita",""+h.qty],["Costo Medio","\u20ac"+h.avg.toFixed(2)],["Investito","\u20ac"+h.cost.toLocaleString("it-IT",{maximumFractionDigits:0})],["Valore","\u20ac"+h.value.toLocaleString("it-IT",{maximumFractionDigits:0})]].map(([a,b])=>(
+                    <div key={a}><div style={{fontSize:9,fontWeight:600,letterSpacing:1,color:"#64748b",textTransform:"uppercase",marginBottom:3}}>{a}</div><div style={{fontSize:mob?13:14,fontWeight:600,color:"#e2e8f0"}}>{b}</div></div>
+                  ))}
+                  <div><div style={{fontSize:9,fontWeight:600,letterSpacing:1,color:"#64748b",textTransform:"uppercase",marginBottom:3}}>P&L</div><PnlVal v={h.pnl} p={h.pnlP} sz={mob?13:14} /></div>
+                </div>
+                <div style={{marginTop:14,paddingTop:12,borderTop:"1px solid #0f1520"}}>
+                  <div style={{fontSize:9,fontWeight:600,letterSpacing:1,color:"#64748b",textTransform:"uppercase",marginBottom:6}}>Lotti</div>
+                  {h.lots.map(lot=>{
+                    const lp = lot.qty*(h.price-lot.buyPrice);
+                    const lpp = ((h.price-lot.buyPrice)/lot.buyPrice)*100;
+                    return (
+                      <div key={lot.id} style={{display:"flex",gap:mob?8:16,alignItems:"center",fontSize:11,color:"#64748b",padding:"4px 0",flexWrap:mob?"wrap":"nowrap"}}>
+                        <span style={{minWidth:70}}>{new Date(lot.buyDate).toLocaleDateString("it-IT")}</span>
+                        <span>{lot.qty} &times; &euro;{lot.buyPrice.toFixed(2)}</span>
+                        {!mob && <span>=&euro;{(lot.qty*lot.buyPrice).toLocaleString("it-IT",{maximumFractionDigits:0})}</span>}
+                        <span style={{marginLeft:"auto"}}><PnlVal v={lp} p={lpp} sz={11} /></span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ====== LOTS ====== */}
+        {tab==="lots" && (
+          <div className="fu">
+            <div style={{background:"#161b27",border:"1px solid #1e2a3a",borderRadius:10,padding:mob?14:20,marginBottom:16}}>
+              <div style={{fontSize:11,fontWeight:500,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:14}}>Aggiungi Acquisto</div>
+              <div style={{display:"grid",gridTemplateColumns:mob?"1fr 1fr":"auto auto auto auto auto",gap:10,alignItems:"end"}}>
+                <div><div style={{fontSize:10,color:"#64748b",marginBottom:4}}>Ticker</div><input type="text" value={addF.ticker} onChange={e=>setAddF({...addF,ticker:e.target.value})} placeholder="VUAA" style={{width:"100%"}} /></div>
+                <div><div style={{fontSize:10,color:"#64748b",marginBottom:4}}>Data</div><input type="date" value={addF.date} onChange={e=>setAddF({...addF,date:e.target.value})} style={{width:"100%"}} /></div>
+                <div><div style={{fontSize:10,color:"#64748b",marginBottom:4}}>Prezzo &euro;</div><input type="number" step="0.01" value={addF.price} onChange={e=>setAddF({...addF,price:e.target.value})} placeholder="111.77" style={{width:"100%"}} /></div>
+                <div><div style={{fontSize:10,color:"#64748b",marginBottom:4}}>Quantita</div><input type="number" value={addF.qty} onChange={e=>setAddF({...addF,qty:e.target.value})} placeholder="10" style={{width:"100%"}} /></div>
+                <button onClick={addLot} style={{background:"#3b82f6",border:"none",borderRadius:7,padding:"8px 20px",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",height:34,gridColumn:mob?"1 / -1":"auto"}}>+ Aggiungi</button>
+              </div>
+            </div>
+            <div style={{background:"#161b27",border:"1px solid #1e2a3a",borderRadius:10,overflow:"hidden"}}>
+              {mob ? (
+                <div>
+                  {lots.map(lot=>{
+                    const pr=(prices[lot.ticker]&&prices[lot.ticker].price)?prices[lot.ticker].price:lot.buyPrice;
+                    const lp=lot.qty*(pr-lot.buyPrice); const lpp=((pr-lot.buyPrice)/lot.buyPrice)*100;
+                    return (
+                      <div key={lot.id} style={{padding:"10px 14px",borderBottom:"1px solid #0f1520",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                        <div>
+                          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:2}}>
+                            <span style={{fontWeight:700,color:"#3b82f6",fontSize:12}}>{lot.ticker}</span>
+                            <span style={{fontSize:10,color:"#64748b"}}>{new Date(lot.buyDate).toLocaleDateString("it-IT")}</span>
+                          </div>
+                          <div style={{fontSize:11,color:"#64748b"}}>{lot.qty} &times; &euro;{lot.buyPrice.toFixed(2)}</div>
+                        </div>
+                        <div style={{display:"flex",alignItems:"center",gap:8}}>
+                          <PnlVal v={lp} p={lpp} sz={11} />
+                          <button onClick={()=>removeLot(lot.id)} style={{background:"none",border:"none",cursor:"pointer",color:"#64748b",fontSize:16,padding:0}}>&times;</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div>
+                  <div style={{display:"grid",gridTemplateColumns:"65px 90px 82px 50px 90px 100px 28px",padding:"10px 14px",background:"#0f1520",fontSize:9,fontWeight:600,letterSpacing:1,textTransform:"uppercase",color:"#64748b",gap:4}}>
+                    <span>Ticker</span><span>Data</span><span>Prezzo</span><span>Qty</span><span>Costo</span><span>P&L</span><span />
+                  </div>
+                  {lots.map(lot=>{
+                    const pr=(prices[lot.ticker]&&prices[lot.ticker].price)?prices[lot.ticker].price:lot.buyPrice;
+                    const lp=lot.qty*(pr-lot.buyPrice); const lpp=((pr-lot.buyPrice)/lot.buyPrice)*100;
+                    return (
+                      <div key={lot.id} style={{display:"grid",gridTemplateColumns:"65px 90px 82px 50px 90px 100px 28px",padding:"9px 14px",alignItems:"center",gap:4,borderTop:"1px solid #0f1520"}}>
+                        <span style={{fontWeight:700,color:"#3b82f6",fontSize:12}}>{lot.ticker}</span>
+                        <span style={{fontSize:11,color:"#64748b"}}>{new Date(lot.buyDate).toLocaleDateString("it-IT")}</span>
+                        <span style={{fontSize:11,color:"#64748b"}}>&euro;{lot.buyPrice.toFixed(2)}</span>
+                        <span style={{fontSize:11,color:"#64748b"}}>{lot.qty}</span>
+                        <span style={{fontSize:11,color:"#64748b"}}>&euro;{(lot.qty*lot.buyPrice).toLocaleString("it-IT",{maximumFractionDigits:0})}</span>
+                        <PnlVal v={lp} p={lpp} sz={11} />
+                        <button onClick={()=>removeLot(lot.id)} style={{background:"none",border:"none",cursor:"pointer",color:"#64748b",fontSize:14,padding:0}}>&times;</button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ====== REBALANCER ====== */}
+        {tab==="rebalance" && (
+          <div className="fu">
+            <div style={{marginBottom:16}}>
+              <h2 style={{margin:0,fontSize:mob?18:20}}>Rebalancer</h2>
+              <p style={{margin:"4px 0 0",fontSize:12,color:"#64748b"}}>Ribilancia il portfolio verso la tua allocazione target</p>
+            </div>
+            <div style={{display:"flex",flexDirection:mob?"column":"row",gap:12,marginBottom:16}}>
+              <div style={{display:"flex",gap:6}}>
+                {[["buy","Solo acquisti"],["full","Completo"]].map(([k,l])=>(
+                  <button key={k} onClick={()=>setRebMode(k)} style={{background:rebMode===k?"rgba(59,130,246,0.15)":"#0f1520",border:"1px solid "+(rebMode===k?"#3b82f6":"#1e2a3a"),borderRadius:8,padding:"8px 16px",cursor:"pointer",color:rebMode===k?"#3b82f6":"#64748b",fontSize:12,fontWeight:600}}>{l}</button>
+                ))}
+              </div>
+              {rebMode==="buy" && (
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:12,color:"#64748b"}}>Nuovo capitale:</span>
+                  <input type="number" step="100" value={rebCash} onChange={e=>setRebCash(e.target.value)} placeholder="1000" style={{width:100,textAlign:"right"}} />
+                  <span style={{fontSize:12,color:"#64748b"}}>&euro;</span>
+                </div>
+              )}
+            </div>
+            {(()=>{
+              const tickers = holdings.map(h=>h.ticker);
+              const totalTarget = tickers.reduce((s,t)=>s+(targets[t]||0),0);
+              const cash = parseFloat(rebCash)||0;
+              const newTotal = totalVal+(rebMode==="buy"?cash:0);
+              const actions = tickers.map(t=>{
+                const h=holdings.find(x=>x.ticker===t);
+                const curVal=h?h.value:0; const curW=totalVal>0?(curVal/totalVal)*100:0;
+                const tgt=targets[t]||0; const tgtVal=newTotal*tgt/100; const diff=tgtVal-curVal;
+                const price=h?h.price:0; const units=price>0?Math.floor(Math.abs(diff)/price)*(diff>=0?1:-1):0;
+                return {ticker:t,name:h?h.name:t,curW,tgt,curVal,tgtVal,diff,price,units,cost:units*price};
+              });
+              let displayActions=actions;
+              if (rebMode==="buy"&&cash>0) {
+                const buys=actions.filter(a=>a.diff>0);
+                const totalDeficit=buys.reduce((s,a)=>s+a.diff,0);
+                displayActions=actions.map(a=>{
+                  if (a.diff<=0||totalDeficit<=0) return {...a,units:0,cost:0};
+                  const u=a.price>0?Math.floor((cash*a.diff/totalDeficit)/a.price):0;
+                  return {...a,units:u,cost:u*a.price};
+                });
+              }
+              const totalBuy=displayActions.filter(a=>a.units>0).reduce((s,a)=>s+a.cost,0);
+              const totalSell=displayActions.filter(a=>a.units<0).reduce((s,a)=>s+Math.abs(a.cost),0);
+              return (
+                <div>
+                  <div style={{background:"#161b27",border:"1px solid #1e2a3a",borderRadius:10,padding:mob?14:20,marginBottom:16}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                      <div style={{fontSize:10,fontWeight:600,letterSpacing:1.2,color:"#64748b",textTransform:"uppercase"}}>Target Allocazione</div>
+                      <div style={{fontSize:12,fontWeight:700,color:Math.abs(totalTarget-100)<0.1?"#22c55e":"#ef4444"}}>{totalTarget.toFixed(0)}%{Math.abs(totalTarget-100)>=0.1?" (deve essere 100%)":""}</div>
+                    </div>
+                    {tickers.map(t=>{
+                      const h=holdings.find(x=>x.ticker===t);
+                      const curW=totalVal>0&&h?(h.value/totalVal)*100:0;
+                      const tgt=targets[t]||0; const dev=tgt-curW;
+                      return (
+                        <div key={t} style={{display:"flex",alignItems:"center",gap:mob?8:12,marginBottom:10,flexWrap:mob?"wrap":"nowrap"}}>
+                          <span style={{fontWeight:700,color:"#3b82f6",fontSize:12,minWidth:52}}>{t}</span>
+                          <div style={{flex:1,minWidth:mob?120:180,height:20,background:"#0f1520",borderRadius:6,position:"relative",overflow:"hidden"}}>
+                            <div style={{position:"absolute",left:0,top:0,height:"100%",width:Math.min(curW,100)+"%",background:"rgba(34,197,94,0.15)",borderRadius:6}} />
+                            <div style={{position:"absolute",left:Math.min(tgt,100)+"%",top:0,height:"100%",width:2,background:"#3b82f6",zIndex:2}} />
+                            <div style={{position:"absolute",left:0,top:0,height:"100%",display:"flex",alignItems:"center",paddingLeft:6,fontSize:10,color:"#64748b",zIndex:3}}>{curW.toFixed(1)}%</div>
+                          </div>
+                          <input type="number" min="0" max="100" step="1" value={tgt}
+                            onChange={e=>{const v=parseFloat(e.target.value)||0;const next={...targets,[t]:v};setTargets(next);sPut("targets",next);}}
+                            style={{width:52,textAlign:"center",fontSize:13,fontWeight:600}} />
+                          <span style={{fontSize:10,color:"#64748b",minWidth:14}}>%</span>
+                          <span style={{fontSize:10,fontWeight:600,minWidth:44,textAlign:"right",color:Math.abs(dev)<1?"#334155":dev>0?"#22c55e":"#ef4444"}}>{dev>0?"+":""}{dev.toFixed(1)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {(rebMode==="full"||(rebMode==="buy"&&cash>0))&&Math.abs(totalTarget-100)<0.1&&(
+                    <div style={{background:"#161b27",border:"1px solid #1e2a3a",borderRadius:10,padding:mob?14:20,marginBottom:16}}>
+                      <div style={{fontSize:11,fontWeight:500,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:12}}>
+                        {rebMode==="buy"?"Piano acquisti (\u20ac"+cash.toLocaleString("it-IT")+")":"Azioni di ribilanciamento"}
+                      </div>
+                      {displayActions.filter(a=>a.units!==0).length===0 ? (
+                        <div style={{textAlign:"center",padding:20,color:"#64748b",fontSize:13}}>{rebMode==="buy"?"Inserisci l'importo da investire":"Portfolio gia bilanciato!"}</div>
+                      ) : (
+                        <div>
+                          {displayActions.filter(a=>a.units!==0).sort((a,b)=>b.units-a.units).map(a=>(
+                            <div key={a.ticker} style={{display:"flex",alignItems:"center",gap:mob?8:12,padding:"10px 0",borderBottom:"1px solid #0f1520",flexWrap:mob?"wrap":"nowrap"}}>
+                              <span style={{fontWeight:700,color:"#3b82f6",fontSize:13,minWidth:52}}>{a.ticker}</span>
+                              <span style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:6,background:a.units>0?"rgba(34,197,94,0.12)":"rgba(239,68,68,0.12)",color:a.units>0?"#22c55e":"#ef4444",border:"1px solid "+(a.units>0?"rgba(34,197,94,0.25)":"rgba(239,68,68,0.25)")}}>{a.units>0?"COMPRA":"VENDI"} {Math.abs(a.units)}</span>
+                              <span style={{fontSize:11,color:"#64748b"}}>&times; &euro;{a.price.toFixed(2)}</span>
+                              <span style={{fontSize:12,fontWeight:600,color:"#e2e8f0",marginLeft:mob?0:"auto"}}>=&euro;{Math.abs(a.cost).toLocaleString("it-IT",{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+                            </div>
+                          ))}
+                          <div style={{marginTop:14,paddingTop:12,borderTop:"1px solid rgba(59,130,246,0.12)",display:"flex",flexWrap:"wrap",gap:mob?12:24}}>
+                            {totalBuy>0&&<div><div style={{fontSize:9,fontWeight:600,letterSpacing:1,color:"rgba(34,197,94,0.6)",textTransform:"uppercase",marginBottom:3}}>Totale acquisti</div><div style={{fontSize:18,fontWeight:700,color:"#22c55e"}}>&euro;{totalBuy.toLocaleString("it-IT",{minimumFractionDigits:2,maximumFractionDigits:2})}</div></div>}
+                            {totalSell>0&&<div><div style={{fontSize:9,fontWeight:600,letterSpacing:1,color:"rgba(239,68,68,0.6)",textTransform:"uppercase",marginBottom:3}}>Totale vendite</div><div style={{fontSize:18,fontWeight:700,color:"#ef4444"}}>&euro;{totalSell.toLocaleString("it-IT",{minimumFractionDigits:2,maximumFractionDigits:2})}</div></div>}
+                            {rebMode==="buy"&&cash>0&&<div><div style={{fontSize:9,fontWeight:600,letterSpacing:1,color:"#64748b",textTransform:"uppercase",marginBottom:3}}>Resto non investito</div><div style={{fontSize:18,fontWeight:700,color:"#64748b"}}>&euro;{(cash-totalBuy).toLocaleString("it-IT",{minimumFractionDigits:2,maximumFractionDigits:2})}</div></div>}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {displayActions.filter(a=>a.units!==0).length>0&&(
+                    <div style={{background:"rgba(91,155,213,0.06)",border:"1px solid rgba(91,155,213,0.15)",borderRadius:10,padding:mob?14:20}}>
+                      <div style={{fontSize:10,fontWeight:600,letterSpacing:1.2,color:"#5B9BD5",textTransform:"uppercase",marginBottom:12}}>Dopo il ribilanciamento</div>
+                      <div style={{display:"grid",gridTemplateColumns:mob?"1fr":"1fr 1fr",gap:8}}>
+                        {tickers.map(t=>{
+                          const a=displayActions.find(x=>x.ticker===t);
+                          const newVal=(a?a.curVal:0)+(a?a.cost:0);
+                          const newW=newTotal>0?(newVal/newTotal)*100:0;
+                          const tgt=targets[t]||0; const dev=newW-tgt;
+                          return (
+                            <div key={t} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 0"}}>
+                              <span style={{fontWeight:700,color:"#3b82f6",fontSize:11,minWidth:48}}>{t}</span>
+                              <div style={{flex:1,height:14,background:"#0f1520",borderRadius:4,position:"relative",overflow:"hidden"}}>
+                                <div style={{position:"absolute",left:0,top:0,height:"100%",width:Math.min(newW,100)+"%",background:"rgba(91,155,213,0.3)",borderRadius:4}} />
+                                <div style={{position:"absolute",left:Math.min(tgt,100)+"%",top:0,height:"100%",width:2,background:"#3b82f6"}} />
+                              </div>
+                              <span style={{fontSize:10,color:"#64748b",minWidth:40,textAlign:"right"}}>{newW.toFixed(1)}%</span>
+                              <span style={{fontSize:9,color:Math.abs(dev)<0.5?"#22c55e":"#334155",minWidth:28}}>{Math.abs(dev)<0.5?"OK":((dev>0?"+":"")+dev.toFixed(1))}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* SIMULATORE */}
+            {(()=>{
+              const runSim=()=>{
+                const ticker=simTicker.trim().toUpperCase(); const qty=parseFloat(simQty)||0; const price=parseFloat(simPrice)||0;
+                if (!ticker||qty<=0||price<=0) return;
+                const simCost=qty*price; const newTotalVal=totalVal+simCost;
+                const exists=holdings.some(x=>x.ticker===ticker);
+                const newHoldings=holdings.map(x=>{
+                  if (x.ticker===ticker) { const nq=x.qty+qty,nc=x.cost+simCost,nv=nq*x.price; return {...x,qty:nq,cost:nc,value:nv,avg:nc/nq}; }
+                  return x;
+                });
+                const finalHoldings=exists?newHoldings:[...newHoldings,{ticker,name:HINTS[ticker]||ticker,qty,cost:simCost,price,value:simCost,avg:price,pnl:0,pnlP:0,w:0}];
+                finalHoldings.forEach(x=>{x.w=newTotalVal>0?(x.value/newTotalVal)*100:0;});
+                setSimResult({ticker,qty,price,simCost,newTotalVal,finalHoldings});
+              };
+              const confirmSim=()=>{
+                if (!simResult) return;
+                const nl={id:"L"+Date.now(),ticker:simResult.ticker,buyDate:new Date().toISOString().slice(0,10),buyPrice:simResult.price,qty:simResult.qty};
+                setLots(prev=>{const n=[...prev,nl];sPut("lots-v2",n);return n;});
+                setSimTicker("");setSimQty("");setSimPrice("");setSimResult(null);
+              };
+              return (
+                <div style={{marginTop:24,paddingTop:20,borderTop:"1px solid #1e2a3a"}}>
+                  <div style={{marginBottom:14}}>
+                    <div style={{fontSize:15,fontWeight:700,color:"#f1f5f9",marginBottom:2}}>Simulatore Acquisti</div>
+                    <div style={{fontSize:12,color:"#64748b"}}>Simula l'effetto di un nuovo acquisto sull'allocazione prima di confermarlo</div>
+                  </div>
+                  <div style={{background:"#161b27",border:"1px solid #1e2a3a",borderRadius:10,padding:mob?14:20,marginBottom:16}}>
+                    <div style={{display:"grid",gridTemplateColumns:mob?"1fr 1fr":"1fr 1fr 1fr auto",gap:10,alignItems:"end"}}>
+                      <div>
+                        <div style={{fontSize:10,fontWeight:500,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:5}}>Ticker</div>
+                        <select value={simTicker} onChange={e=>{setSimTicker(e.target.value);setSimResult(null);const h=holdings.find(x=>x.ticker===e.target.value);setSimPrice(h?h.price.toFixed(4):"");}} style={{width:"100%"}}>
+                          <option value="">Seleziona...</option>
+                          {holdings.map(h=><option key={h.ticker} value={h.ticker}>{h.ticker} - {h.name.slice(0,28)}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <div style={{fontSize:10,fontWeight:500,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:5}}>Quantita</div>
+                        <input type="number" min="1" step="1" value={simQty} onChange={e=>{setSimQty(e.target.value);setSimResult(null);}} placeholder="10" style={{width:"100%"}} />
+                      </div>
+                      <div>
+                        <div style={{fontSize:10,fontWeight:500,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:5}}>Prezzo EUR</div>
+                        <input type="number" step="0.001" value={simPrice} onChange={e=>{setSimPrice(e.target.value);setSimResult(null);}} placeholder="111.92" style={{width:"100%"}} />
+                      </div>
+                      <button onClick={runSim} disabled={!simTicker||!simQty||!simPrice} style={{background:(!simTicker||!simQty||!simPrice)?"#1e2a3a":"#3b82f6",border:"none",borderRadius:7,padding:"8px 20px",color:(!simTicker||!simQty||!simPrice)?"#475569":"#fff",fontSize:13,fontWeight:600,cursor:(!simTicker||!simQty||!simPrice)?"default":"pointer",gridColumn:mob?"1 / -1":"auto",height:36}}>Simula</button>
+                    </div>
+                  </div>
+                  {simResult&&(()=>{
+                    const simH=simResult.finalHoldings; const prevH=holdings;
+                    return (
+                      <div>
+                        <div style={{display:"grid",gridTemplateColumns:mob?"1fr 1fr":"repeat(4,1fr)",gap:10,marginBottom:14}}>
+                          {[
+                            ["Investimento","EUR "+simResult.simCost.toLocaleString("it-IT",{minimumFractionDigits:2,maximumFractionDigits:2}),"#f1f5f9"],
+                            ["Nuovo totale","EUR "+simResult.newTotalVal.toLocaleString("it-IT",{minimumFractionDigits:2,maximumFractionDigits:2}),"#f1f5f9"],
+                            ["Peso prima",(prevH.find(x=>x.ticker===simResult.ticker)||{w:0}).w.toFixed(1)+"%","#94a3b8"],
+                            ["Peso dopo",(simH.find(x=>x.ticker===simResult.ticker)||{w:0}).w.toFixed(1)+"%","#3b82f6"],
+                          ].map(([label,value,color])=>(
+                            <div key={label} style={{background:"#161b27",border:"1px solid #1e2a3a",borderRadius:8,padding:"10px 14px"}}>
+                              <div style={{fontSize:10,color:"#475569",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:4}}>{label}</div>
+                              <div className="num" style={{fontSize:15,fontWeight:700,color}}>{value}</div>
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{background:"#161b27",border:"1px solid #1e2a3a",borderRadius:10,overflow:"hidden",marginBottom:14}}>
+                          <div style={{padding:"9px 16px",background:"#0f1520",borderBottom:"1px solid #1e2a3a",display:"flex",gap:16,fontSize:11,fontWeight:500,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.06em"}}>
+                            <span style={{flex:"0 0 60px"}}>Ticker</span><span style={{flex:1}}>Barra</span>
+                            <span style={{minWidth:50,textAlign:"right"}}>Prima</span><span style={{minWidth:50,textAlign:"right",color:"#3b82f6"}}>Dopo</span>
+                            <span style={{minWidth:46,textAlign:"right"}}>Target</span><span style={{minWidth:42,textAlign:"right"}}>Dev.</span>
+                          </div>
+                          {simH.map(sh=>{
+                            const ph=prevH.find(x=>x.ticker===sh.ticker);
+                            const prevW=ph?ph.w:0; const afterW=sh.w;
+                            const tgt=targets[sh.ticker]||0; const dev=afterW-tgt;
+                            const isChanged=sh.ticker===simResult.ticker;
+                            return (
+                              <div key={sh.ticker} style={{display:"flex",alignItems:"center",gap:16,padding:"9px 16px",borderBottom:"1px solid #0f1520",background:isChanged?"rgba(59,130,246,0.04)":"transparent"}}>
+                                <span style={{fontWeight:700,color:isChanged?"#3b82f6":"#94a3b8",fontSize:12,flex:"0 0 60px"}}>{sh.ticker}</span>
+                                <div style={{flex:1,height:6,background:"#0f1520",borderRadius:3,position:"relative",overflow:"hidden",minWidth:60}}>
+                                  <div style={{position:"absolute",left:0,top:0,height:"100%",width:Math.min(prevW,100)+"%",background:"rgba(100,116,139,0.35)",borderRadius:3}} />
+                                  <div style={{position:"absolute",left:0,top:0,height:"100%",width:Math.min(afterW,100)+"%",background:isChanged?"rgba(59,130,246,0.55)":"rgba(34,197,94,0.3)",borderRadius:3,transition:"width 0.4s"}} />
+                                  {tgt>0&&<div style={{position:"absolute",left:Math.min(tgt,100)+"%",top:0,height:"100%",width:2,background:"#3b82f6",zIndex:2}} />}
+                                </div>
+                                <span className="num" style={{minWidth:50,textAlign:"right",fontSize:11,color:"#64748b"}}>{prevW.toFixed(1)}%</span>
+                                <span className="num" style={{minWidth:50,textAlign:"right",fontSize:12,fontWeight:isChanged?700:400,color:isChanged?"#3b82f6":"#cbd5e1"}}>{afterW.toFixed(1)}%</span>
+                                <span className="num" style={{minWidth:46,textAlign:"right",fontSize:11,color:"#475569"}}>{tgt>0?tgt.toFixed(0)+"%":"-"}</span>
+                                <span className="num" style={{minWidth:42,textAlign:"right",fontSize:11,fontWeight:600,color:tgt>0?(Math.abs(dev)<1?"#22c55e":dev>0?"#f59e0b":"#ef4444"):"#334155"}}>{tgt>0?(dev>0?"+":"")+dev.toFixed(1):"-"}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        {holdings.some(x=>x.ticker===simResult.ticker)&&(()=>{
+                          const prev=holdings.find(x=>x.ticker===simResult.ticker);
+                          const newQty=prev.qty+simResult.qty; const newCost=prev.cost+simResult.simCost;
+                          const newAvg=newCost/newQty; const improved=simResult.price<prev.avg;
+                          return (
+                            <div style={{background:"rgba(59,130,246,0.05)",border:"1px solid rgba(59,130,246,0.15)",borderRadius:10,padding:mob?12:16,marginBottom:14,display:"flex",flexWrap:"wrap",gap:mob?12:20,alignItems:"center"}}>
+                              <div style={{fontSize:12,fontWeight:700,color:"#3b82f6"}}>{simResult.ticker} - prezzo medio</div>
+                              {[["Qty attuale",prev.qty],["+ Acquisto","+"+simResult.qty],["= Totale qty",newQty]].map(([l,v])=>(
+                                <div key={l}><div style={{fontSize:9,color:"#475569",textTransform:"uppercase",marginBottom:2}}>{l}</div><div className="num" style={{fontSize:13,fontWeight:600,color:"#e2e8f0"}}>{v}</div></div>
+                              ))}
+                              <div style={{width:1,height:28,background:"#1e2a3a"}} />
+                              <div><div style={{fontSize:9,color:"#475569",textTransform:"uppercase",marginBottom:2}}>Prezzo medio prima</div><div className="num" style={{fontSize:13,fontWeight:600,color:"#64748b"}}>EUR {prev.avg.toFixed(4)}</div></div>
+                              <div><div style={{fontSize:9,color:"#475569",textTransform:"uppercase",marginBottom:2}}>Prezzo medio dopo</div><div className="num" style={{fontSize:14,fontWeight:700,color:improved?"#22c55e":"#f59e0b"}}>EUR {newAvg.toFixed(4)} {improved?"DOWN":"UP"}</div></div>
+                            </div>
+                          );
+                        })()}
+                        <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+                          <button onClick={()=>{setSimResult(null);setSimQty("");}} style={{background:"#0f1520",border:"1px solid #1e2a3a",borderRadius:7,padding:"8px 18px",color:"#64748b",fontSize:13,fontWeight:600,cursor:"pointer"}}>Annulla</button>
+                          <button onClick={confirmSim} style={{background:"#22c55e",border:"none",borderRadius:7,padding:"8px 24px",color:"#0d1117",fontSize:13,fontWeight:700,cursor:"pointer"}}>Conferma e aggiungi ai lotti</button>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* ====== STORICO ====== */}
+        {tab==="storico" && (
+          <div className="fu">
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:10}}>
+              <div>
+                <div style={{fontSize:15,fontWeight:700,color:"#f1f5f9",marginBottom:2}}>Storico Performance</div>
+                <div style={{fontSize:12,color:"#64748b"}}>Snapshot salvati ad ogni aggiornamento prezzi</div>
+              </div>
+              <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                {history.length>0&&<button onClick={()=>{if(window.confirm("Eliminare tutti gli snapshot?")){{setHistory([]);sPut("history",[]);}}}} style={{background:"#0f1520",border:"1px solid #1e2a3a",borderRadius:7,padding:"6px 12px",color:"#475569",fontSize:11,fontWeight:600,cursor:"pointer"}}>Cancella storico</button>}
+                <button onClick={()=>{if(totalVal>0)saveSnapshot(totalVal,totalCost,holdings);}} disabled={totalVal===0} style={{background:totalVal===0?"#1e2a3a":"#3b82f6",border:"none",borderRadius:7,padding:"6px 14px",color:totalVal===0?"#475569":"#fff",fontSize:12,fontWeight:600,cursor:totalVal===0?"default":"pointer"}}>+ Salva snapshot ora</button>
+              </div>
+            </div>
+            {history.length===0 ? (
+              <div style={{background:"#161b27",border:"1px solid #1e2a3a",borderRadius:10,padding:40,textAlign:"center"}}>
+                <div style={{fontSize:32,marginBottom:12}}>📈</div>
+                <div style={{fontSize:14,fontWeight:600,color:"#94a3b8",marginBottom:6}}>Nessuno snapshot ancora</div>
+                <div style={{fontSize:12,color:"#475569",marginBottom:16}}>Lo storico si costruisce automaticamente ogni volta che aggiorni i prezzi con uno screenshot.</div>
+                <button onClick={()=>{if(totalVal>0)saveSnapshot(totalVal,totalCost,holdings);}} style={{background:"#3b82f6",border:"none",borderRadius:7,padding:"8px 20px",color:"#fff",fontSize:13,fontWeight:600,cursor:"pointer"}}>Salva primo snapshot</button>
+              </div>
+            ) : (()=>{
+              const first=history[0]; const last=history[history.length-1];
+              const maxVal=Math.max(...history.map(h=>h.totalVal));
+              const chartData=history.map(h=>({label:new Date(h.date).toLocaleDateString("it-IT",{day:"2-digit",month:"2-digit"}),valore:h.totalVal,investito:h.totalCost,pnlP:h.pnlP}));
+              const latestPnl=last.pnl; const latestPnlP=last.pnlP;
+              return (
+                <div>
+                  <div style={{display:"grid",gridTemplateColumns:mob?"1fr 1fr":"repeat(4,1fr)",gap:10,marginBottom:16}}>
+                    {[
+                      ["Valore attuale","EUR "+last.totalVal.toLocaleString("it-IT",{minimumFractionDigits:2,maximumFractionDigits:2}),"#f1f5f9"],
+                      ["P&L totale",(latestPnl>=0?"+":"")+latestPnlP.toFixed(2)+"% / EUR "+(latestPnl>=0?"+":"")+Math.abs(latestPnl).toLocaleString("it-IT",{minimumFractionDigits:0}),latestPnl>=0?"#22c55e":"#ef4444"],
+                      ["Massimo storico","EUR "+maxVal.toLocaleString("it-IT",{minimumFractionDigits:2,maximumFractionDigits:2}),"#f1f5f9"],
+                      ["Snapshot",""+history.length+" ("+first.date+" - "+last.date+")","#64748b"],
+                    ].map(([label,value,color])=>(
+                      <div key={label} style={{background:"#161b27",border:"1px solid #1e2a3a",borderRadius:10,padding:mob?"12px 14px":"14px 18px"}}>
+                        <div style={{fontSize:10,fontWeight:500,color:"#475569",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:5}}>{label}</div>
+                        <div className="num" style={{fontSize:mob?11:13,fontWeight:700,color,lineHeight:1.3}}>{value}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{background:"#161b27",border:"1px solid #1e2a3a",borderRadius:10,padding:mob?14:20,marginBottom:14}}>
+                    <div style={{fontSize:11,fontWeight:500,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:16}}>Valore Portfolio nel Tempo</div>
+                    <ResponsiveContainer width="100%" height={mob?200:260}>
+                      <AreaChart data={chartData} margin={{top:4,right:8,bottom:4,left:mob?0:10}}>
+                        <defs>
+                          <linearGradient id="gv" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3b82f6" stopOpacity={0.15}/><stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/></linearGradient>
+                          <linearGradient id="gc" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#64748b" stopOpacity={0.08}/><stop offset="95%" stopColor="#64748b" stopOpacity={0}/></linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#1e2a3a" />
+                        <XAxis dataKey="label" tick={{fill:"#64748b",fontSize:11}} stroke="#1e2a3a" interval="preserveStartEnd" />
+                        <YAxis tickFormatter={v=>"EUR "+Math.round(v/1000)+"k"} tick={{fill:"#475569",fontSize:10}} stroke="#1e2a3a" width={mob?50:60} />
+                        <Tooltip contentStyle={{background:"#1e293b",border:"1px solid #2a3a50",borderRadius:8,fontSize:12,color:"#e2e8f0"}} formatter={(v,name)=>["EUR "+parseFloat(v).toLocaleString("it-IT",{minimumFractionDigits:2,maximumFractionDigits:2}),name]} labelFormatter={l=>"Data: "+l} />
+                        <Area type="monotone" dataKey="investito" name="Investito" stroke="#475569" strokeWidth={1.5} strokeDasharray="4 2" fill="url(#gc)" dot={false} />
+                        <Area type="monotone" dataKey="valore" name="Valore" stroke="#3b82f6" strokeWidth={2} fill="url(#gv)" dot={chartData.length<=20?{r:3,fill:"#3b82f6",strokeWidth:0}:false} activeDot={{r:5,fill:"#3b82f6"}} />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div style={{background:"#161b27",border:"1px solid #1e2a3a",borderRadius:10,padding:mob?14:20,marginBottom:14}}>
+                    <div style={{fontSize:11,fontWeight:500,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:16}}>P&L % nel Tempo</div>
+                    <ResponsiveContainer width="100%" height={mob?150:180}>
+                      <AreaChart data={chartData} margin={{top:4,right:8,bottom:4,left:mob?0:10}}>
+                        <defs><linearGradient id="gp" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#22c55e" stopOpacity={0.2}/><stop offset="95%" stopColor="#22c55e" stopOpacity={0}/></linearGradient></defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#1e2a3a" />
+                        <XAxis dataKey="label" tick={{fill:"#64748b",fontSize:11}} stroke="#1e2a3a" interval="preserveStartEnd" />
+                        <YAxis tickFormatter={v=>v.toFixed(1)+"%"} tick={{fill:"#475569",fontSize:10}} stroke="#1e2a3a" width={mob?46:52} />
+                        <Tooltip contentStyle={{background:"#1e293b",border:"1px solid #2a3a50",borderRadius:8,fontSize:12,color:"#e2e8f0"}} formatter={v=>[v.toFixed(2)+"%","P&L"]} labelFormatter={l=>"Data: "+l} />
+                        <ReferenceLine y={0} stroke="#334155" strokeDasharray="3 3" />
+                        <Area type="monotone" dataKey="pnlP" name="P&L %" stroke={latestPnlP>=0?"#22c55e":"#ef4444"} strokeWidth={2} fill="url(#gp)" dot={false} activeDot={{r:5}} />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div style={{background:"#161b27",border:"1px solid #1e2a3a",borderRadius:10,overflow:"hidden"}}>
+                    <div style={{padding:"9px 16px",background:"#0f1520",borderBottom:"1px solid #1e2a3a",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                      <span style={{fontSize:11,fontWeight:500,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.06em"}}>Tutti gli snapshot</span>
+                      <span style={{fontSize:11,color:"#334155"}}>{history.length} voci</span>
+                    </div>
+                    <div style={{maxHeight:320,overflowY:"auto"}}>
+                      {[...history].reverse().map((s,i)=>{
+                        const isLatest=i===0; const prev2=history[history.length-1-i-1];
+                        const dayChange=prev2?s.totalVal-prev2.totalVal:null;
+                        return (
+                          <div key={s.date} style={{display:"flex",alignItems:"center",gap:mob?8:16,padding:"9px 16px",borderBottom:"1px solid #0f1520",background:isLatest?"rgba(59,130,246,0.04)":"transparent"}}>
+                            <span className="num" style={{fontSize:12,color:isLatest?"#94a3b8":"#475569",flex:"0 0 84px"}}>{s.date}</span>
+                            <span className="num" style={{fontSize:13,fontWeight:isLatest?700:400,color:isLatest?"#e2e8f0":"#94a3b8",flex:1}}>EUR {s.totalVal.toLocaleString("it-IT",{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+                            <span className="num" style={{fontSize:12,color:s.pnl>=0?"#22c55e":"#ef4444",minWidth:80,textAlign:"right"}}>{s.pnl>=0?"+":""}EUR {Math.abs(s.pnl).toLocaleString("it-IT",{minimumFractionDigits:0,maximumFractionDigits:0})}</span>
+                            <span className="num" style={{fontSize:12,color:s.pnlP>=0?"#22c55e":"#ef4444",minWidth:56,textAlign:"right"}}>{s.pnlP>=0?"+":""}{s.pnlP.toFixed(2)}%</span>
+                            {dayChange!==null&&<span className="num" style={{fontSize:11,color:dayChange>=0?"rgba(34,197,94,0.7)":"rgba(239,68,68,0.7)",minWidth:60,textAlign:"right",display:mob?"none":"block"}}>{dayChange>=0?"+":""}EUR {Math.abs(dayChange).toLocaleString("it-IT",{minimumFractionDigits:0,maximumFractionDigits:0})}</span>}
+                            <button onClick={()=>{setHistory(prev=>{const n=prev.filter(x=>x.date!==s.date);sPut("history",n);return n;});}} style={{background:"none",border:"none",color:"#334155",cursor:"pointer",fontSize:13,padding:"0 2px"}}>x</button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* ====== COMPOSIZIONE ====== */}
+        {tab==="composizione" && (
+          <div className="fu">
+            <div style={{display:"flex",flexDirection:mob?"column":"row",justifyContent:"space-between",alignItems:mob?"stretch":"center",gap:mob?10:0,marginBottom:20}}>
+              <div>
+                <h2 style={{margin:0,fontSize:mob?18:20}}>Composizione Portfolio</h2>
+                <p style={{margin:"4px 0 0",fontSize:12,color:"#64748b"}}>Aziende, settori e paesi aggregati dagli ETF</p>
+              </div>
+              <button onClick={doFetchComp} disabled={cLoad} style={{background:cLoad?"#1e2a3a":"#3b82f6",border:"none",borderRadius:10,padding:"10px 22px",cursor:cLoad?"default":"pointer",color:cLoad?"#475569":"#fff",fontSize:13,fontWeight:700,boxShadow:cLoad?"none":"0 4px 16px rgba(59,130,246,0.3)",alignSelf:mob?"stretch":"auto"}}>
+                {cLoad?"Calcolo...":"Ricalcola"}
+              </button>
+            </div>
+            {cLoad&&<Spin t="Calcolo composizione..." />}
+            {cErr&&<ErrBox m={cErr} retry={doFetchComp} />}
+            {!comp&&!cLoad&&!cErr&&<div style={{textAlign:"center",padding:"50px 20px",color:"#64748b"}}><div style={{fontSize:36,marginBottom:10}}>🔍</div><div style={{fontSize:14}}>Clicca Ricalcola per vedere settori, paesi e top holdings del tuo portfolio</div></div>}
+            {comp&&(()=>{
+              return (
+                <div>
+                  <div style={{display:"grid",gridTemplateColumns:mob?"1fr":"1fr 1fr",gap:16,marginBottom:20}}>
+                    <div style={{background:"#161b27",border:"1px solid #1e2a3a",borderRadius:10,padding:mob?14:18}}>
+                      <div style={{fontSize:11,fontWeight:500,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:14}}>Settori (portfolio aggregato)</div>
+                      {(comp.portfolio_sectors||[]).map((s,i)=>(
+                        <div key={s.name} style={{marginBottom:9}}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                            <div style={{display:"flex",alignItems:"center",gap:7}}><div style={{width:8,height:8,borderRadius:2,background:getC(s.name),flexShrink:0}} /><span style={{fontSize:12,color:"#cbd5e1"}}>{s.name}</span></div>
+                            <span style={{fontSize:12,fontWeight:700,color:"#e2e8f0"}}>{s.pct.toFixed(1)}%</span>
+                          </div>
+                          <div style={{height:5,background:"#0f1520",borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:s.pct+"%",background:getC(s.name),borderRadius:3,opacity:0.85}} /></div>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{background:"#161b27",border:"1px solid #1e2a3a",borderRadius:10,padding:mob?14:18}}>
+                      <div style={{fontSize:11,fontWeight:500,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:14}}>Paesi (portfolio aggregato)</div>
+                      {(comp.portfolio_countries||[]).map((c,i)=>(
+                        <div key={c.name} style={{marginBottom:9}}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                            <span style={{fontSize:12,color:"#cbd5e1"}}>{c.name}</span>
+                            <span style={{fontSize:12,fontWeight:700,color:"#e2e8f0"}}>{c.pct.toFixed(1)}%</span>
+                          </div>
+                          <div style={{height:5,background:"#0f1520",borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:Math.min(c.pct,100)+"%",background:PAL[i%PAL.length],borderRadius:3,opacity:0.75}} /></div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{background:"#161b27",border:"1px solid #1e2a3a",borderRadius:10,overflow:"hidden",marginBottom:20}}>
+                    <div style={{padding:"14px 18px",borderBottom:"1px solid #0f1520"}}><div style={{fontSize:10,fontWeight:600,letterSpacing:1.2,color:"#64748b",textTransform:"uppercase"}}>Top Holdings (% portfolio)</div></div>
+                    {!mob&&<div style={{display:"grid",gridTemplateColumns:"28px 1fr 100px 90px 80px",padding:"8px 18px",background:"#0f1520",fontSize:9,fontWeight:600,letterSpacing:1,textTransform:"uppercase",color:"#64748b",gap:8}}><span>#</span><span>Azienda</span><span>Settore</span><span>ETF</span><span style={{textAlign:"right"}}>% Portafoglio</span></div>}
+                    {(comp.portfolio_top_holdings||[]).map((h,i)=>(
+                      <div key={i} style={{display:"grid",gridTemplateColumns:mob?"1fr auto":"28px 1fr 100px 90px 80px",padding:mob?"10px 14px":"10px 18px",alignItems:"center",gap:8,borderTop:"1px solid #0f1520"}}>
+                        {!mob&&<span style={{fontSize:11,color:"#64748b",fontWeight:600}}>{i+1}</span>}
+                        <div><div style={{fontSize:13,fontWeight:600,color:"#e2e8f0"}}>{h.name}</div>{mob&&<div style={{fontSize:10,color:"#64748b",marginTop:1}}>{h.sector} - <span style={{color:"#3b82f6"}}>{h.etf}</span></div>}</div>
+                        {!mob&&<span style={{fontSize:11,color:"#64748b"}}>{h.sector}</span>}
+                        {!mob&&<span style={{display:"inline-flex",alignItems:"center",background:"rgba(59,130,246,0.08)",border:"1px solid #1e2a3a",borderRadius:5,padding:"2px 8px",fontSize:10,fontWeight:700,color:"#3b82f6",width:"fit-content"}}>{h.etf}</span>}
+                        <div style={{display:"flex",alignItems:"center",gap:8,justifyContent:"flex-end"}}>
+                          <div style={{width:mob?60:70,height:4,background:"#0f1520",borderRadius:2,overflow:"hidden"}}><div style={{height:"100%",width:Math.min((h.pct/((comp.portfolio_top_holdings[0]?.pct)||1))*100,100)+"%",background:getC(h.sector),opacity:0.8,borderRadius:2}} /></div>
+                          <span style={{fontSize:12,fontWeight:700,color:"#e2e8f0",minWidth:36,textAlign:"right"}}>{h.pct.toFixed(1)}%</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div>
+                    <div style={{fontSize:11,fontWeight:500,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:14}}>Dettaglio per ETF</div>
+                    <div style={{display:"grid",gridTemplateColumns:mob?"1fr":"1fr 1fr",gap:14}}>
+                      {Object.entries(comp.etf_details||{}).map(([ticker,etf])=>{
+                        const holding=holdings.find(h=>h.ticker===ticker);
+                        return (
+                          <div key={ticker} style={{background:"#161b27",border:"1px solid #1e2a3a",borderRadius:10,overflow:"hidden"}}>
+                            <div style={{padding:"12px 16px",background:"#0f1520",borderBottom:"1px solid #0f1520",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                              <span style={{fontWeight:700,color:"#3b82f6",fontSize:15}}>{ticker}</span>
+                              {holding&&<span style={{fontSize:11,color:"#64748b"}}>peso: <span style={{color:"#e2e8f0",fontWeight:600}}>{holding.w.toFixed(1)}%</span></span>}
+                            </div>
+                            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:0}}>
+                              <div style={{padding:"10px 14px",borderRight:"1px solid #1e2a3a"}}>
+                                <div style={{fontSize:9,fontWeight:600,letterSpacing:1,color:"#64748b",textTransform:"uppercase",marginBottom:8}}>Top Holdings</div>
+                                {(etf.top_holdings||[]).slice(0,5).map((h,i)=>(
+                                  <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
+                                    <span style={{fontSize:10,color:"#64748b",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"70%"}}>{h.name}</span>
+                                    <span style={{fontSize:10,fontWeight:600,color:"#e2e8f0",flexShrink:0}}>{h.pct.toFixed(1)}%</span>
+                                  </div>
+                                ))}
+                              </div>
+                              <div style={{padding:"10px 14px"}}>
+                                <div style={{fontSize:9,fontWeight:600,letterSpacing:1,color:"#64748b",textTransform:"uppercase",marginBottom:8}}>Settori</div>
+                                {(etf.sectors||[]).slice(0,5).map((s,i)=>(
+                                  <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
+                                    <div style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:6,height:6,borderRadius:1,background:getC(s.name),flexShrink:0}} /><span style={{fontSize:10,color:"#64748b",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"80%"}}>{s.name}</span></div>
+                                    <span style={{fontSize:10,fontWeight:600,color:"#e2e8f0",flexShrink:0}}>{s.pct.toFixed(1)}%</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* ====== MARKET PULSE ====== */}
+        {tab==="market" && (
+          <div className="fu">
+            <div style={{display:"flex",flexDirection:mob?"column":"row",justifyContent:"space-between",alignItems:mob?"stretch":"center",gap:mob?10:0,marginBottom:20}}>
+              <div>
+                <h2 style={{margin:0,fontSize:mob?18:20}}>Market Pulse</h2>
+                <p style={{margin:"4px 0 0",fontSize:12,color:"#64748b"}}>Analisi sentiment mercati in tempo reale</p>
+              </div>
+              <button onClick={doFetchSent} disabled={sLoad} style={{background:sLoad?"#1e2a3a":"#3b82f6",border:"none",borderRadius:10,padding:"10px 22px",cursor:sLoad?"default":"pointer",color:sLoad?"#475569":"#fff",fontSize:13,fontWeight:700,boxShadow:sLoad?"none":"0 4px 16px rgba(59,130,246,0.3)",alignSelf:mob?"stretch":"auto"}}>
+                {sLoad?"Analisi...":"Analizza Sentiment"}
+              </button>
+            </div>
+            {!apiKey&&<ErrBox m="API key Anthropic necessaria. Inseriscila premendo API KEY nell'header." />}
+            {sLoad&&<Spin t="Claude analizza il mercato..." />}
+            {sErr&&<ErrBox m={sErr} retry={doFetchSent} />}
+            {!sent&&!sLoad&&!sErr&&<div style={{textAlign:"center",padding:"50px 20px",color:"#64748b"}}><div style={{fontSize:36,marginBottom:10}}>📡</div><div style={{fontSize:14}}>Clicca "Analizza Sentiment" per ottenere un'analisi del mercato basata sulle notizie recenti</div></div>}
+            {sent&&(
+              <div>
+                {sent.overall_summary&&(
+                  <div style={{background:"#161b27",border:"1px solid #1e2a3a",borderRadius:10,padding:mob?14:20,marginBottom:20}}>
+                    <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:10,flexWrap:"wrap"}}>
+                      <span style={{fontSize:10,fontWeight:600,letterSpacing:1.2,color:"#64748b",textTransform:"uppercase"}}>Sentiment Generale</span>
+                      <SBadge s={sent.overall_sentiment} />
+                    </div>
+                    <p style={{margin:0,fontSize:14,color:"#94a3b8",lineHeight:1.6}}>{sent.overall_summary}</p>
+                  </div>
+                )}
+                {sent.sectors&&(
+                  <div style={{background:"#161b27",border:"1px solid #1e2a3a",borderRadius:10,padding:mob?14:20,marginBottom:20}}>
+                    <div style={{fontSize:11,fontWeight:500,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:12}}>Settori</div>
+                    {Object.entries(sent.sectors).map(([name,d])=>(
+                      <div key={name} style={{padding:"10px 0",borderBottom:"1px solid #0f1520"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:4}}>
+                          <span style={{fontWeight:600,color:"#e2e8f0",fontSize:13,minWidth:150}}>{name}</span>
+                          <SBadge s={d.sentiment} />
+                        </div>
+                        <p style={{margin:"0 0 4px",fontSize:12,color:"#64748b",lineHeight:1.5}}>{d.headline}</p>
+                        <p style={{margin:0,fontSize:11,color:"#64748b",fontStyle:"italic"}}>{d.impact}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {sent.etf_signals&&(
+                  <div style={{background:"#161b27",border:"1px solid #1e2a3a",borderRadius:10,padding:mob?14:20,marginBottom:20}}>
+                    <div style={{fontSize:11,fontWeight:500,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:12}}>Segnali ETF</div>
+                    <div style={{display:"grid",gridTemplateColumns:mob?"1fr":"repeat(auto-fill,minmax(190px,1fr))",gap:10}}>
+                      {Object.entries(sent.etf_signals).map(([tk,d])=>(
+                        <div key={tk} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:"#161b27",borderRadius:8,border:"1px solid #1e2a3a"}}>
+                          <span style={{fontWeight:700,color:"#3b82f6",fontSize:13,minWidth:48}}>{tk}</span>
+                          <div style={{flex:1}}><SBadge s={d.sentiment} /><div style={{fontSize:10,color:"#64748b",marginTop:3}}>{d.signal}</div></div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div style={{display:"grid",gridTemplateColumns:mob?"1fr":"1fr 1fr",gap:14}}>
+                  <div style={{background:"rgba(239,68,68,0.04)",border:"1px solid rgba(239,68,68,0.12)",borderRadius:12,padding:16}}>
+                    <div style={{fontSize:10,fontWeight:600,letterSpacing:1.2,color:"#ef4444",textTransform:"uppercase",marginBottom:10}}>Rischi</div>
+                    {(sent.key_risks||[]).map((r,i)=><div key={i} style={{display:"flex",gap:8,marginBottom:8,fontSize:12,color:"#64748b",lineHeight:1.5}}><span style={{color:"#ef4444",fontWeight:700}}>&#9658;</span><span>{r}</span></div>)}
+                  </div>
+                  <div style={{background:"rgba(34,197,94,0.04)",border:"1px solid rgba(34,197,94,0.12)",borderRadius:12,padding:16}}>
+                    <div style={{fontSize:10,fontWeight:600,letterSpacing:1.2,color:"#22c55e",textTransform:"uppercase",marginBottom:10}}>Opportunita</div>
+                    {(sent.opportunities||[]).map((o,i)=><div key={i} style={{display:"flex",gap:8,marginBottom:8,fontSize:12,color:"#64748b",lineHeight:1.5}}><span style={{color:"#22c55e",fontWeight:700}}>&#9658;</span><span>{o}</span></div>)}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ====== MACRO ====== */}
+        {tab==="macro" && (
+          <div className="fu">
+            <div style={{display:"flex",flexDirection:mob?"column":"row",justifyContent:"space-between",alignItems:mob?"stretch":"center",gap:mob?10:0,marginBottom:20}}>
+              <div>
+                <h2 style={{margin:0,fontSize:mob?18:20}}>Macro Dashboard</h2>
+                <p style={{margin:"4px 0 0",fontSize:12,color:"#64748b"}}>Indicatori USA + Eurozona</p>
+              </div>
+              <button onClick={doFetchMacro} disabled={mLoad} style={{background:mLoad?"#1e2a3a":"#3b82f6",border:"none",borderRadius:10,padding:"10px 22px",cursor:mLoad?"default":"pointer",color:mLoad?"#475569":"#fff",fontSize:13,fontWeight:700,boxShadow:mLoad?"none":"0 4px 16px rgba(59,130,246,0.3)",alignSelf:mob?"stretch":"auto"}}>
+                {mLoad?"Caricamento...":"Aggiorna Macro"}
+              </button>
+            </div>
+            {!apiKey&&<ErrBox m="API key Anthropic necessaria. Inseriscila premendo API KEY nell'header." />}
+            {mLoad&&<Spin t="Claude carica dati macro..." />}
+            {mErr&&<ErrBox m={mErr} retry={doFetchMacro} />}
+            {!macro&&!mLoad&&!mErr&&<div style={{textAlign:"center",padding:"50px 20px",color:"#64748b"}}><div style={{fontSize:36,marginBottom:10}}>🏛️</div><div style={{fontSize:14}}>Clicca "Aggiorna Macro" per caricare i dati economici</div></div>}
+            {macro&&(
+              <div>
+                <div style={{background:"#0f1520",border:"1px solid #1e2a3a",borderRadius:10,padding:20,marginBottom:20}}>
+                  <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:8,flexWrap:"wrap"}}>
+                    <span style={{fontSize:10,fontWeight:600,letterSpacing:1.2,color:"#64748b",textTransform:"uppercase"}}>Ciclo</span>
+                    <span style={{background:"rgba(59,130,246,0.18)",border:"1px solid rgba(59,130,246,0.4)",borderRadius:6,padding:"3px 12px",fontSize:13,fontWeight:700,color:"#3b82f6"}}>{macro.economic_cycle}</span>
+                  </div>
+                  <p style={{margin:0,fontSize:13,color:"#64748b",lineHeight:1.6}}>{macro.cycle_summary}</p>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:mob?"1fr 1fr":"repeat(auto-fill,minmax(165px,1fr))",gap:12,marginBottom:20}}>
+                  {macro.indicators&&Object.entries(macro.indicators).map(([key,ind])=>{
+                    const nm={ecb_rate:"Tasso BCE",fed_rate:"Tasso Fed",eu_inflation:"Inflaz. UE",us_inflation:"Inflaz. USA",eu_gdp:"PIL UE",us_gdp:"PIL USA",eurusd:"EUR/USD",vix:"VIX",stoxx600:"STOXX 600"};
+                    const tc2=ind.trend==="rising"?"#ef4444":ind.trend==="declining"?"#22c55e":"#3b82f6";
+                    const ti=ind.trend==="rising"?"&#9650;":ind.trend==="declining"?"&#9660;":"*";
+                    return (
+                      <div key={key} style={{background:"#161b27",border:"1px solid #1e2a3a",borderRadius:12,padding:14}}>
+                        <div style={{fontSize:9,fontWeight:600,letterSpacing:1,color:"#64748b",textTransform:"uppercase",marginBottom:6}}>{nm[key]||key}</div>
+                        <div style={{fontSize:22,fontWeight:700,color:"#e2e8f0"}}>{typeof ind.value==="number"?ind.value.toFixed(2):ind.value}{ind.unit}</div>
+                        <div style={{display:"flex",alignItems:"center",gap:6,marginTop:4}}>
+                          <span style={{fontSize:10,color:tc2,fontWeight:600}} dangerouslySetInnerHTML={{__html:ti+" "+ind.trend}} />
+                          {ind.prev!==undefined&&<span style={{fontSize:9,color:"#64748b"}}>prev: {typeof ind.prev==="number"?ind.prev.toFixed(2):ind.prev}{ind.unit}</span>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {macro.portfolio_implications&&(
+                  <div style={{background:"rgba(91,155,213,0.06)",border:"1px solid rgba(91,155,213,0.15)",borderRadius:10,padding:20}}>
+                    <div style={{fontSize:10,fontWeight:600,letterSpacing:1.2,color:"#5B9BD5",textTransform:"uppercase",marginBottom:12}}>Implicazioni Portfolio</div>
+                    {macro.portfolio_implications.map((imp,i)=>(
+                      <div key={i} style={{display:"flex",gap:10,marginBottom:10,fontSize:13,color:"#64748b",lineHeight:1.5}}>
+                        <span style={{color:"#5B9BD5",fontWeight:700}}>-&gt;</span><span>{imp}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+      </div>
+
+      <div style={{padding:mob?"20px 14px 0":"20px 24px 0",borderTop:"1px solid #1e2a3a",marginTop:16,textAlign:"center"}}>
+        <p style={{fontSize:9,color:"#475569",lineHeight:1.6,maxWidth:540,margin:"0 auto"}}>Solo a scopo informativo. Non costituisce consulenza finanziaria.</p>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
+</script>
+</body>
+</html>
